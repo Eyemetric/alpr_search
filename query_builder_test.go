@@ -13,7 +13,7 @@ func TestBuildSelectQuery(t *testing.T) {
 		"end_date": "2025-01-31T23:59:59Z",
 		"plate_num": "%MG%" }`
 
-	jdata = `
+	_ = `
 	{
 	  "page": 1,
 	  "page_size": 20,

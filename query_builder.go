@@ -74,7 +74,7 @@ func (qb *queryBuilder) whereClause() string {
 
 // applyFilters adds all relevant filters to the queryBuilder based on SearchParams.
 // This function encapsulates the repetitive filtering logic.
-func applyFilters(qb *queryBuilder, params SearchParams) {
+func applyFilters(qb *queryBuilder, params SearchDoc) {
 	fmt.Printf("%+v\n", params)
 	if params.StartDate != "" && params.EndDate != "" {
 		sd, errS := parseDateTime(params.StartDate)
@@ -90,7 +90,7 @@ func applyFilters(qb *queryBuilder, params SearchParams) {
 	if params.Geometry != nil {
 		fmt.Printf("%+v\n", params.Geometry)
 
-		//this should always work since we've already unmarshalled it
+		//NOTE: this should always work since we've already unmarshalled it
 		//we should do something else because it's probably expensive to convert twice
 		geoJSON, err := json.Marshal(params.Geometry)
 		if err != nil {
@@ -141,33 +141,46 @@ func applyFilters(qb *queryBuilder, params SearchParams) {
 // --- Public Functions ---
 
 // BuildSelectQuery constructs the SELECT query using the internal builder.
-func BuildSelectQuery(jsonData []byte) (string, []any, error) {
-	var params SearchParams
-	err := json.Unmarshal(jsonData, &params)
-	fmt.Printf("%+v\n", params)
-	if err != nil {
-		return "", nil, fmt.Errorf("invalid search document format: %w", err)
-	}
+// func BuildSelectQuery(jsonData []byte) (string, []any, error) {
+func BuildSelectQuery(searchDoc SearchDoc) (string, []any, error) {
+	// var params SearchDoc
+	// err := json.Unmarshal(jsonData, &params)
+	// fmt.Printf("%+v\n", params)
+	// if err != nil {
+	// 	return "", nil, fmt.Errorf("invalid search document format: %w", err)
+	// }
+
 	//TODO: if there is a faulty date format or missing date, consider setting default to today instead of returning an error
-	if params.StartDate == "" || params.EndDate == "" {
+	if searchDoc.StartDate == "" || searchDoc.EndDate == "" {
 		return "", nil, fmt.Errorf("start_date and end_date are required")
 	}
 
 	qb := newQueryBuilder()
-	applyFilters(qb, params) // Use the shared filter logic
+	applyFilters(qb, searchDoc) // Use the shared filter logic
 
-	// Base select statement
+	// Base select statement. location is returned as a jsonb fragment so we don't need special golang GeomTypes, easier
 	baseSQL := `SELECT
         plate_num, plate_code, camera_name, read_id, read_time, image_id,
         ST_AsText(location) as location, make, vehicle_type, color,
         doc->'source'->>'id' as source_id FROM alpr`
 
+	baseSQL = `SELECT
+        plate_num, plate_code, camera_name, read_id, read_time, image_id,
+	 -- Transform the geometry column 'location' into JSONB here
+	    CASE
+		WHEN location IS NOT NULL THEN
+	jsonb_build_object('lat', TRUNC(ST_Y(location)::numeric, 5), 'lon', TRUNC(ST_X(location)::numeric, 5))
+		ELSE
+		    jsonb_build_object('lat', 0.0, 'lon', 0.0) -- Or 'null'::jsonb if you prefer JSON null
+	    END AS location,
+	make, vehicle_type, color,
+        doc->'source'->>'id' as source_id FROM alpr`
 	// Assemble final query
 	sql := baseSQL + qb.whereClause() + " ORDER BY read_time DESC, id DESC"
 
 	// Add pagination
-	page := params.Page
-	pageSize := params.PageSize
+	page := searchDoc.Page
+	pageSize := searchDoc.PageSize
 	if page <= 0 {
 		page = 1
 	}
@@ -188,7 +201,7 @@ func BuildSelectQuery(jsonData []byte) (string, []any, error) {
 
 // BuildCountQuery constructs the COUNT query using the internal builder.
 func BuildCountQuery(jsonData []byte) (string, []any, error) {
-	var params SearchParams // Only needed for filtering
+	var params SearchDoc // Only needed for filtering
 	err := json.Unmarshal(jsonData, &params)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid search document format: %w", err)
