@@ -101,6 +101,8 @@ type AlprRecord struct {
 	VehicleType *string         `db:"vehicle_type"  json:"vehicle_type"`
 	Color       *string         `db:"color"         json:"color"`
 	SourceID    *string         `db:"source_id"     json:"source_id"`
+	PlateImg    string          `json:"plate_img"`
+	FullImg     string          `json:"full_img"`
 }
 
 //	"error": {
@@ -115,8 +117,9 @@ type ErrorRes struct {
 }
 
 type App struct {
-	DB   *pgxpool.Pool
-	Echo *echo.Echo
+	DB     *pgxpool.Pool
+	Echo   *echo.Echo
+	Wasabi *Wasabi
 }
 
 func initApp() *App {
@@ -134,9 +137,8 @@ func initApp() *App {
 		log.Fatalf("unable to ping database: %v", err)
 	}
 
-	s3_access_key_id := getEnv("S3_ACCESS_KEY_ID", "1P0OTN6M3USYCTHQCQOD")
-	s3_secret_access_key := getEnv("S3_SECRET_ACCESS_KEY", "wtpUBGL0d1IULlXOYHMe41NT0HFCBHDyAK92oXeM")
-	s3_bucket := getEnv("S3_BUCKET", "njsnap")
+	//s3_access_key_id := getEnv("S3_ACCESS_KEY_ID", "1P0OTN6M3USYCTHQCQOD")
+	//s3_secret_access_key := getEnv("S3_SECRET_ACCESS_KEY", "wtpUBGL0d1IULlXOYHMe41NT0HFCBHDyAK92oXeM")
 	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
 	s3_region := getEnv("S3_REGION", "us-east-1")
 
@@ -153,8 +155,9 @@ func initApp() *App {
 	// e.Use(middleware.CORS())
 
 	app := &App{
-		DB:   dbPool,
-		Echo: e,
+		DB:     dbPool,
+		Echo:   e,
+		Wasabi: wasabi,
 	}
 
 	registerRoutes(app)
@@ -234,9 +237,25 @@ func (app *App) search(c echo.Context) error {
 
 	fmt.Println("recoreds retrieved")
 
-	//TODO: postprocessing
+	//Add the presigned urls to each record for public image retrieval.
+	for i := 0; i < len(alprRecords); i++ {
+		//will there always be a SourceID and an ImageID? i believe so.
+		full_img := fmt.Sprintf("alpr/%s/%s", alprRecords[i].SourceID, alprRecords[i].ImageID)
+		plate_img := fmt.Sprintf("alpr_plate/%s/%s", alprRecords[i].SourceID, alprRecords[i].ReadID)
+		full_url, err := app.Wasabi.PresignUrl("njsnap", full_img)
+		if err != nil {
+			log.Printf("%v", err)
+		}
+		plate_url, err := app.Wasabi.PresignUrl("njsnap", plate_img)
+		if err != nil {
+			log.Println("no plate url present")
+		}
 
-	//add custom fields, generate presigned url.
+		alprRecords[i].FullImg = full_url
+		alprRecords[i].PlateImg = plate_url
+
+	}
+
 	return c.JSON(200, alprRecords)
 }
 
