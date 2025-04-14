@@ -19,6 +19,8 @@ import (
 	"time"
 )
 
+const ()
+
 /*
 	{
 	   ... other json fields
@@ -119,11 +121,7 @@ type App struct {
 
 func initApp() *App {
 	//pass query to db to get stuff
-	connStr := os.Getenv("ALPR_DB")
-
-	if connStr == "" {
-		connStr = "postgresql://admin:admin@192.168.3.225:5533/snap"
-	}
+	connStr := getEnv("ALPR_DB", "postgresql://admin:admin@192.168.3.225:5533/snap")
 
 	ctx := context.Background()
 	dbPool, err := pgxpool.New(ctx, connStr)
@@ -134,6 +132,17 @@ func initApp() *App {
 	//check that db was connected
 	if err := dbPool.Ping(ctx); err != nil {
 		log.Fatalf("unable to ping database: %v", err)
+	}
+
+	s3_access_key_id := getEnv("S3_ACCESS_KEY_ID", "1P0OTN6M3USYCTHQCQOD")
+	s3_secret_access_key := getEnv("S3_SECRET_ACCESS_KEY", "wtpUBGL0d1IULlXOYHMe41NT0HFCBHDyAK92oXeM")
+	s3_bucket := getEnv("S3_BUCKET", "njsnap")
+	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
+	s3_region := getEnv("S3_REGION", "us-east-1")
+
+	wasabi, err := NewWasabi(s3_host, s3_region)
+	if err != nil {
+		log.Fatalf("unable to create wasabi client: %v", err)
 	}
 
 	e := echo.New()
@@ -231,15 +240,18 @@ func (app *App) search(c echo.Context) error {
 	return c.JSON(200, alprRecords)
 }
 
+func getEnv(key string, fallback string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+	return fallback
+}
 func main() {
 
 	app := initApp()
 	defer app.DB.Close()
 
-	port := os.Getenv("ALPR_PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := getEnv("ALPR_PORT", "8080")
 
 	log.Fatal(app.Echo.Start(":" + port))
 
