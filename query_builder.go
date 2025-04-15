@@ -17,7 +17,6 @@ type queryBuilder struct {
 	phIndex    int //tracks next placeholder index ($1, $2, ...)
 }
 
-// newQueryBuilder creates a new builder instance.
 func newQueryBuilder() *queryBuilder {
 	return &queryBuilder{
 		conditions: []string{},
@@ -37,12 +36,12 @@ func (qb *queryBuilder) nextPlaceholder() string {
 // It uses nextPlaceholder to manage indices automatically.
 // Takes the SQL fragment (e.g., "field = %s", "field LIKE %s", "field BETWEEN %s AND %s")
 // and the corresponding values.
-func (qb *queryBuilder) addCondition(fragmentFormat string, values ...any) {
+func (qb *queryBuilder) addCondition(fragment string, values ...any) {
 	placeholders := make([]any, len(values))
 	for i := range values {
 		placeholders[i] = qb.nextPlaceholder()
 	}
-	qb.conditions = append(qb.conditions, fmt.Sprintf(fragmentFormat, placeholders...))
+	qb.conditions = append(qb.conditions, fmt.Sprintf(fragment, placeholders...))
 	qb.args = append(qb.args, values...)
 }
 
@@ -52,16 +51,16 @@ func (qb *queryBuilder) addInCondition(field string, values []string) {
 		return
 	}
 	// Type conversion needed as values are strings, but args needs interface{}
-	interfaceValues := make([]any, len(values))
+	interfaceVals := make([]any, len(values))
 	placeholders := make([]string, len(values))
 	for i, v := range values {
 		placeholders[i] = qb.nextPlaceholder()
-		interfaceValues[i] = v // Store the original string value
+		interfaceVals[i] = v // Store the original string value
 	}
 
 	condition := fmt.Sprintf("%s IN (%s)", field, strings.Join(placeholders, ", "))
 	qb.conditions = append(qb.conditions, condition)
-	qb.args = append(qb.args, interfaceValues...)
+	qb.args = append(qb.args, interfaceVals...)
 }
 
 // whereClause constructs the final WHERE clause string.
@@ -74,7 +73,7 @@ func (qb *queryBuilder) whereClause() string {
 
 // applyFilters adds all relevant filters to the queryBuilder based on SearchParams.
 // This function encapsulates the repetitive filtering logic.
-func applyFilters(qb *queryBuilder, params SearchDoc) {
+func (qb *queryBuilder) applyFilters(params SearchDoc) {
 	fmt.Printf("%+v\n", params)
 	if params.StartDate != "" && params.EndDate != "" {
 		sd, errS := parseDateTime(params.StartDate)
@@ -138,47 +137,40 @@ func applyFilters(qb *queryBuilder, params SearchDoc) {
 	}
 }
 
+// Base select statement. location is returned as a jsonb fragment so we don't need special golang GeomTypes, easier
+const baseSQL = `
+	    SELECT plate_num, plate_code, camera_name, read_id, read_time, image_id, make, vehicle_type, color,
+	    CASE WHEN location IS NOT NULL THEN jsonb_build_object('lat', TRUNC(ST_Y(location)::numeric, 5), 'lon', TRUNC(ST_X(location)::numeric, 5))
+	    ELSE jsonb_build_object('lat', 0.0, 'lon', 0.0) 
+	    END AS location, doc->'source'->>'id' as source_id FROM alpr`
+
 // --- Public Functions ---
 
+type Query struct {
+	Text   string
+	Params []any
+}
+
 // BuildSelectQuery constructs the SELECT query using the internal builder.
-// func BuildSelectQuery(jsonData []byte) (string, []any, error) {
-func BuildSelectQuery(searchDoc SearchDoc) (string, []any, error) {
-	// var params SearchDoc
-	// err := json.Unmarshal(jsonData, &params)
-	// fmt.Printf("%+v\n", params)
-	// if err != nil {
-	// 	return "", nil, fmt.Errorf("invalid search document format: %w", err)
-	// }
+func BuildSelectQuery(searchDoc SearchDoc) (*Query, error) {
 
 	//TODO: if there is a faulty date format or missing date, consider setting default to today instead of returning an error
 	if searchDoc.StartDate == "" || searchDoc.EndDate == "" {
-		return "", nil, fmt.Errorf("start_date and end_date are required")
+		return nil, fmt.Errorf("start_date and end_date are required")
 	}
 
 	qb := newQueryBuilder()
-	applyFilters(qb, searchDoc) // Use the shared filter logic
+	qb.applyFilters(searchDoc) // Use the shared filter logic
 
-	// Base select statement. location is returned as a jsonb fragment so we don't need special golang GeomTypes, easier
-	baseSQL := `SELECT
-        plate_num, plate_code, camera_name, read_id, read_time, image_id,
-        ST_AsText(location) as location, make, vehicle_type, color,
-        doc->'source'->>'id' as source_id FROM alpr`
+	q := Query{}
+	q.Text = fmt.Sprintf("%s %s %s", baseSQL, qb.whereClause(), qb.addPagination(searchDoc))
+	q.Params = qb.args
 
-	baseSQL = `SELECT
-        plate_num, plate_code, camera_name, read_id, read_time, image_id,
-	 -- Transform the geometry column 'location' into JSONB here
-	    CASE
-		WHEN location IS NOT NULL THEN
-	jsonb_build_object('lat', TRUNC(ST_Y(location)::numeric, 5), 'lon', TRUNC(ST_X(location)::numeric, 5))
-		ELSE
-		    jsonb_build_object('lat', 0.0, 'lon', 0.0) -- Or 'null'::jsonb if you prefer JSON null
-	    END AS location,
-	make, vehicle_type, color,
-        doc->'source'->>'id' as source_id FROM alpr`
-	// Assemble final query
-	sql := baseSQL + qb.whereClause() + " ORDER BY read_time DESC, id DESC"
+	return &q, nil
+}
 
-	// Add pagination
+// this is limit offset
+func (qb *queryBuilder) addPagination(searchDoc SearchDoc) string {
 	page := searchDoc.Page
 	pageSize := searchDoc.PageSize
 	if page <= 0 {
@@ -193,29 +185,25 @@ func BuildSelectQuery(searchDoc SearchDoc) (string, []any, error) {
 	// We create temporary placeholders just for formatting the SQL string fragment
 	limitPh := qb.nextPlaceholder()
 	offsetPh := qb.nextPlaceholder()
-	sql += fmt.Sprintf(" LIMIT %s OFFSET %s", limitPh, offsetPh)
-	args := append(qb.args, pageSize, offset) // Manually append pagination args
-
-	return sql, args, nil
+	qb.args = append(qb.args, pageSize, offset)
+	order := " ORDER BY read_time DESC, id DESC"
+	return fmt.Sprintf("%s LIMIT %s OFFSET %s", order, limitPh, offsetPh)
 }
 
 // BuildCountQuery constructs the COUNT query using the internal builder.
-func BuildCountQuery(jsonData []byte) (string, []any, error) {
-	var params SearchDoc // Only needed for filtering
-	err := json.Unmarshal(jsonData, &params)
-	if err != nil {
-		return "", nil, fmt.Errorf("invalid search document format: %w", err)
-	}
+func BuildCountQuery(searchDoc SearchDoc) (*Query, error) {
 	// No need to validate required fields strictly for count filters,
 	// applyFilters will handle missing ones gracefully.
 
 	qb := newQueryBuilder()
-	applyFilters(qb, params) // Use the shared filter logic
+	qb.applyFilters(searchDoc) // Use the shared filter logic
 
-	baseSQL := `SELECT count(id) FROM alpr`
-	sql := baseSQL + qb.whereClause()
+	q := Query{}
+	q.Text = fmt.Sprintf("Select count(*) from alpr %s", qb.whereClause())
+	q.Params = qb.args
 
-	return sql, qb.args, nil // Return SQL and args accumulated by the builder
+	return &q, nil
+
 }
 
 // CalculateTotalPages remains the same
@@ -223,11 +211,10 @@ func CalculateTotalPages(totalCount int64, pageSize int) int {
 	if totalCount <= 0 {
 		return 0
 	}
-	effPageSize := pageSize
-	if effPageSize <= 0 {
-		effPageSize = 1000
+	if pageSize <= 0 {
+		pageSize = 1000
 	}
-	return int(math.Ceil(float64(totalCount) / float64(effPageSize)))
+	return int(math.Ceil(float64(totalCount) / float64(pageSize)))
 }
 
 // NOTE: RFC3339 is a stricter version of ISO8601

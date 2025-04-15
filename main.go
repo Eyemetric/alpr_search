@@ -51,8 +51,12 @@ type SearchDoc struct {
 	VehicleType string    `json:"vehicle_type"`
 	Color       string    `json:"color"`
 	PlateNum    string    `json:"plate_num"`
-	Page        int       `json:"page"`
-	PageSize    int       `json:"page_size"`
+	//for limmit/offset
+	Page          int    `json:"page"`
+	PageSize      int    `json:"page_size"`
+	Direction     string `json:"direction,omitempty"` //next or prev
+	NextPageToken string `json:"next_page_token,omitempty"`
+	PrevPageToken string `json:"prev_page_token,omitempty"`
 }
 
 /*
@@ -85,7 +89,7 @@ type SearchResults struct {
 	AlprRecords []AlprRecord `json:"results"`
 }
 type Metadata struct {
-	PageCount int `json:"page_count"`
+	PageCount int64 `json:"page_count"`
 }
 
 // NOTE: using pointers so that any db null values will be set to null as the json value. The default serialization for SqlNullString is trash.
@@ -103,6 +107,9 @@ type AlprRecord struct {
 	SourceID    *string         `db:"source_id"     json:"source_id"`
 	PlateImg    string          `json:"plate_img"`
 	FullImg     string          `json:"full_img"`
+	SiteID      string          `json:"site_id"`
+	UserID      *string         `json:"user_id"`
+	AgencyName  string          `json:"agency_name"`
 }
 
 //	"error": {
@@ -193,7 +200,9 @@ func (app *App) search(c echo.Context) error {
 	}
 
 	//build the query
-	query, q_vals, err := BuildSelectQuery(searchDoc)
+	//query, q_vals, err := BuildSelectQuery(searchDoc)
+	query, err := BuildSelectQuery(searchDoc)
+	fmt.Println(query)
 	if err != nil {
 		errMsg := ErrorRes{
 			Code:    "BAD_REQUEST",
@@ -203,7 +212,7 @@ func (app *App) search(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errMsg)
 	}
 
-	rows, err := app.DB.Query(ctx, query, q_vals...)
+	rows, err := app.DB.Query(ctx, query.Text, query.Params...)
 	if err != nil {
 		errMsg := ErrorRes{
 			Code:    "INTERNAL_SERVER_ERROR",
@@ -238,6 +247,10 @@ func (app *App) search(c echo.Context) error {
 	fmt.Println("recoreds retrieved")
 
 	//Add the presigned urls to each record for public image retrieval.
+	//Do some post processing
+	// add presigned urls for public image access
+	// site_id required
+	// agency required
 	for i := 0; i < len(alprRecords); i++ {
 		//will there always be a SourceID and an ImageID? i believe so.
 		full_img := fmt.Sprintf("alpr/%s/%s", alprRecords[i].SourceID, alprRecords[i].ImageID)
@@ -253,10 +266,30 @@ func (app *App) search(c echo.Context) error {
 
 		alprRecords[i].FullImg = full_url
 		alprRecords[i].PlateImg = plate_url
+		alprRecords[i].SiteID = "NJ0141000"
+		alprRecords[i].AgencyName = "East Hanover"
 
 	}
 
-	return c.JSON(200, alprRecords)
+	count := int64(-1)
+	if searchDoc.Page == 1 {
+		cq, _ := BuildCountQuery(searchDoc)
+
+		row := app.DB.QueryRow(ctx, cq.Text, cq.Params...)
+		if err := row.Scan(&count); err != nil {
+			count = 0
+		}
+
+	}
+
+	total := CalculateTotalPages(count, searchDoc.PageSize)
+	fmt.Printf("total items: %d , total pages: %d", count, total)
+
+	results := SearchResults{
+		Metadata:    Metadata{PageCount: count},
+		AlprRecords: alprRecords,
+	}
+	return c.JSON(200, results)
 }
 
 func getEnv(key string, fallback string) string {
