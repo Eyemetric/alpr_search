@@ -9,17 +9,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 
-	//	"github.com/aws/aws-sdk-go-v2/config"
-	//	"github.com/aws/aws-sdk-go-v2/credentials"
 	_ "log"
-	//"os"
 	_ "time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 const (
-	PRESIGN_EXPIRES = 360 * time.Minute
+	PRESIGN_EXPIRES = 360 * time.Minute //6hr cache.
 )
 
 type Wasabi struct {
@@ -48,11 +45,9 @@ func (w *Wasabi) PresignUrl(bucket, objectKey string) (string, error) {
 }
 
 func NewWasabi(s3Host, s3Region string) (*Wasabi, error) {
-	//s3Endpoint := fmt.Sprintf("https://%s", getEnv("S3_HOST", S3_HOST))
-	//s3Region := getEnv("S3_REGION", S3_REGION)
 	s3Endpoint := fmt.Sprintf("https://%s", s3Host)
 	usePathStyle := true
-	//lets the sdk know we aren't calling official aws servers. GOOD LORD! This aws api is TRASH!
+	//lets the sdk know we aren't calling official aws servers. GOOD LORD! This aws api is HOT TRASH!
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		if service == s3.ServiceID {
 			return aws.Endpoint{
