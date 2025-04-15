@@ -5,22 +5,16 @@ import (
 	_ "database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/labstack/echo/v4"
 	"log"
 	"net/http"
-
-	"github.com/jackc/pgx/v5"         // Or your chosen driver
-	"github.com/jackc/pgx/v5/pgxpool" // Or your chosen driver
-
-	//"github.com/jackc/pgx/v5/pgtype" // Or your chosen driver
-	"github.com/labstack/echo/v4"
-
-	//"github.com/labstack/echo/v4/middleware"
 	"os"
 	"time"
 )
 
-const ()
-
+//Example of what Geometry json looks like
 /*
 	{
 	   ... other json fields
@@ -51,15 +45,16 @@ type SearchDoc struct {
 	VehicleType string    `json:"vehicle_type"`
 	Color       string    `json:"color"`
 	PlateNum    string    `json:"plate_num"`
-	//for limmit/offset
-	Page          int    `json:"page"`
-	PageSize      int    `json:"page_size"`
-	Direction     string `json:"direction,omitempty"` //next or prev
+	//for limit/offset paging
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+	//for cursor based paging (not implemented yet)
+	Direction     string `json:"direction,omitempty"`
 	NextPageToken string `json:"next_page_token,omitempty"`
 	PrevPageToken string `json:"prev_page_token,omitempty"`
 }
 
-/*
+/* Example of what SearchResults json looks like
 {
   "metadata": {
     "page_count": 50    // Total pages on first request, -1 for subsequent pages
@@ -88,6 +83,7 @@ type SearchResults struct {
 	Metadata    Metadata     `json:"metadata"`
 	AlprRecords []AlprRecord `json:"results"`
 }
+
 type Metadata struct {
 	PageCount int64 `json:"page_count"`
 }
@@ -100,7 +96,7 @@ type AlprRecord struct {
 	ReadID      *string         `db:"read_id"       json:"read_id"`
 	ReadTime    time.Time       `db:"read_time"     json:"read_time"`
 	ImageID     *string         `db:"image_id"      json:"image_id"`
-	Location    json.RawMessage `db:"location"      json:"location"`
+	Location    json.RawMessage `db:"location"      json:"location"` //a passthrough value. location is returned as a block of json.
 	Make        *string         `db:"make"          json:"make"`
 	VehicleType *string         `db:"vehicle_type"  json:"vehicle_type"`
 	Color       *string         `db:"color"         json:"color"`
@@ -112,11 +108,6 @@ type AlprRecord struct {
 	AgencyName  string          `json:"agency_name"`
 }
 
-//	"error": {
-//	    "code": "INVALID_SEARCH",
-//	    "message": "Invalid date range specified",
-//	    "details": "End date must be after start date"
-//	  }
 type ErrorRes struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -130,7 +121,7 @@ type App struct {
 }
 
 func initApp() *App {
-	//pass query to db to get stuff
+
 	connStr := getEnv("ALPR_DB", "postgresql://admin:admin@192.168.3.225:5533/snap")
 
 	log.Println("------------- starting application ------------")
@@ -146,8 +137,7 @@ func initApp() *App {
 		log.Fatalf("unable to ping database: %v", err)
 	}
 
-	//s3_access_key_id := getEnv("S3_ACCESS_KEY_ID", "1P0OTN6M3USYCTHQCQOD")
-	//s3_secret_access_key := getEnv("S3_SECRET_ACCESS_KEY", "wtpUBGL0d1IULlXOYHMe41NT0HFCBHDyAK92oXeM")
+	//where our images live.
 	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
 	s3_region := getEnv("S3_REGION", "us-east-1")
 
@@ -183,21 +173,27 @@ func registerRoutes(app *App) {
 	api.POST("/alpr/v1/search", app.search)
 }
 
+/*
+	search: the main event!
+
+- recieve a json request body representing an alpr search (plate num partial matches, date ranges, geo searches, vehicle characteristics, etc),
+- convert json to a SearchDoc struct and build a postgres query from it,
+- get the query results and build a SearchResults struct with Metadata (page count) and all the AlprRecords.
+- Postprocess AlprRecords by generating presigned_urls for secure access to images on wasabi (s3) without needing to authenticate (build into the presigned link)
+- Return SearchResults.
+*/
 func (app *App) search(c echo.Context) error {
 	ctx := c.Request().Context()
 	log.Println("Search requested...")
 	//TODO: consider attaching a prepared search query to the App struct. perf optimization. not yet since it might not be needed.
-	//get the json from the RequestBody and convert to SearchDocument struct
 
 	searchDoc := SearchDoc{}
 	if err := c.Bind(&searchDoc); err != nil {
-		//return c.String(http.StatusBadRequest, "Bad request" )
 		errMsg := ErrorRes{
 			Code:    "BAD_REQUEST",
 			Message: "Bad Search Document",
 			Details: "Couldn't parse SearchDoc. Check that you've included all required fields",
 		}
-		//return c.String(http.StatusBadRequest, "Bad request" )
 		return c.JSON(http.StatusBadRequest, errMsg)
 	}
 
@@ -205,10 +201,7 @@ func (app *App) search(c echo.Context) error {
 		searchDoc.PageSize = 1000
 	}
 
-	//build the query
-	//query, q_vals, err := BuildSelectQuery(searchDoc)
 	query, err := BuildSelectQuery(searchDoc)
-	//fmt.Println(query)
 	if err != nil {
 		errMsg := ErrorRes{
 			Code:    "BAD_REQUEST",
@@ -252,23 +245,20 @@ func (app *App) search(c echo.Context) error {
 
 	fmt.Println("recoreds retrieved")
 
-	//Add the presigned urls to each record for public image retrieval.
-	//Do some post processing
-	// add presigned urls for public image access
-	// site_id required
-	// agency required
+	//post process Add the presigned urls to each record for public image retrieval. add hardcoded required vals
 	for i := 0; i < len(alprRecords); i++ {
+		//TODO: remember this is temporary hardcoding.
 		alprRecords[i].SiteID = "NJ0141000"
 		alprRecords[i].AgencyName = "East Hanover"
 
-		//Remember the pain of not deferencing!
+		//Remember the pain of not deferencing a ptr!
 		sourceIDPtr := alprRecords[i].SourceID
 		imageIDPtr := alprRecords[i].ImageID
 		readIDPtr := alprRecords[i].ReadID
 
-		//will there always be a SourceID and an ImageID? i believe so.
+		//will there always be a SourceID and an ImageID? i believe so but check anyway.
 		if sourceIDPtr == nil {
-			log.Println("skipping presign. no sourceid")
+			log.Println("skipping presign. no sourceid") //can't do nothing without the sourceid
 			continue
 		}
 
@@ -282,6 +272,7 @@ func (app *App) search(c echo.Context) error {
 			}
 		}
 
+		//verify plate image
 		if readIDPtr != nil {
 			plate_img := fmt.Sprintf("alpr-plate/%s/%s", *sourceIDPtr, *readIDPtr)
 			plate_url, err := app.Wasabi.PresignUrl("njsnap", plate_img)
@@ -290,13 +281,13 @@ func (app *App) search(c echo.Context) error {
 			}
 
 			alprRecords[i].PlateImg = plate_url
-
 		}
-
 	}
 
 	count := int64(-1)
 
+	//we only get a count for the first page. client holds on to it until a new 1st page is requested.
+	//saves us from doing work we don't need to
 	if searchDoc.Page == 1 {
 		cq, _ := BuildCountQuery(searchDoc)
 
@@ -304,32 +295,30 @@ func (app *App) search(c echo.Context) error {
 		if err := row.Scan(&count); err != nil {
 			count = 0
 		}
-
 	}
 
 	total := CalculateTotalPages(count, searchDoc.PageSize)
-	fmt.Printf("total items: %d , total pages: %d", count, total)
+	fmt.Printf("total items: %d , total pages: %d\n", count, total)
 
 	results := SearchResults{
 		Metadata:    Metadata{PageCount: count},
 		AlprRecords: alprRecords,
 	}
+
 	return c.JSON(200, results)
 }
 
+// helper
 func getEnv(key string, fallback string) string {
 	if val, ok := os.LookupEnv(key); ok {
 		return val
 	}
 	return fallback
 }
-func main() {
 
+func main() {
 	app := initApp()
 	defer app.DB.Close()
-
 	port := getEnv("ALPR_PORT", "8080")
-
 	log.Fatal(app.Echo.Start(":" + port))
-
 }

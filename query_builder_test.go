@@ -37,6 +37,7 @@ func TestBuildSelectQuery(t *testing.T) {
 	}
 	`
 
+	//TODO: unmarshal the json to SearchDoc
 	s_query, _, err := BuildSelectQuery([]byte(jdata))
 	if err != nil {
 		println("you done f'd up %v", err)

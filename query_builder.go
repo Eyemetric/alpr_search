@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// --- Internal Query Builder ---
-
 type queryBuilder struct {
 	conditions []string
 	args       []any
@@ -74,7 +72,6 @@ func (qb *queryBuilder) whereClause() string {
 // applyFilters adds all relevant filters to the queryBuilder based on SearchParams.
 // This function encapsulates the repetitive filtering logic.
 func (qb *queryBuilder) applyFilters(params SearchDoc) {
-	fmt.Printf("%+v\n", params)
 	if params.StartDate != "" && params.EndDate != "" {
 		sd, errS := parseDateTime(params.StartDate)
 		ed, errE := parseDateTime(params.EndDate)
@@ -87,7 +84,6 @@ func (qb *queryBuilder) applyFilters(params SearchDoc) {
 	}
 
 	if params.Geometry != nil {
-		fmt.Printf("%+v\n", params.Geometry)
 
 		//NOTE: this should always work since we've already unmarshalled it
 		//we should do something else because it's probably expensive to convert twice
@@ -95,11 +91,8 @@ func (qb *queryBuilder) applyFilters(params SearchDoc) {
 		if err != nil {
 			fmt.Printf("error marshalling geometry: %v", err)
 		} else {
-			//qb.addCondition("ST_Within(location, ST_SetSRID(ST_GeomFromText(%s), 4326))", params.Geometry)
 			qb.addCondition("ST_Within(location, ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326))", geoJSON)
-
 		}
-
 	}
 
 	// Camera Names Filter (IN clause)
@@ -190,7 +183,7 @@ func (qb *queryBuilder) addPagination(searchDoc SearchDoc) string {
 	return fmt.Sprintf("%s LIMIT %s OFFSET %s", order, limitPh, offsetPh)
 }
 
-// BuildCountQuery constructs the COUNT query using the internal builder.
+// constructs the COUNT query using the internal builder.
 func BuildCountQuery(searchDoc SearchDoc) (*Query, error) {
 	// No need to validate required fields strictly for count filters,
 	// applyFilters will handle missing ones gracefully.
@@ -206,7 +199,6 @@ func BuildCountQuery(searchDoc SearchDoc) (*Query, error) {
 
 }
 
-// CalculateTotalPages remains the same
 func CalculateTotalPages(totalCount int64, pageSize int) int {
 	if totalCount <= 0 {
 		return 0

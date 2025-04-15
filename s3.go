@@ -4,15 +4,12 @@ import (
 	"context"
 	_ "context"
 	"fmt"
-	"time"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-
-	_ "log"
-	_ "time"
-
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	_ "log"
+	"time"
+	_ "time"
 )
 
 const (
@@ -24,6 +21,7 @@ type Wasabi struct {
 	presignClient *s3.PresignClient
 }
 
+// creates a secure but publicly accessible image link with a 6hr expiration
 func (w *Wasabi) PresignUrl(bucket, objectKey string) (string, error) {
 	//we need the bucket and the object.
 	//prepare presign request input
@@ -44,6 +42,7 @@ func (w *Wasabi) PresignUrl(bucket, objectKey string) (string, error) {
 
 }
 
+// return a struct that wraps the aws S3 client for Wasabi
 func NewWasabi(s3Host, s3Region string) (*Wasabi, error) {
 	s3Endpoint := fmt.Sprintf("https://%s", s3Host)
 	usePathStyle := true
