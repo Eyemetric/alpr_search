@@ -133,6 +133,8 @@ func initApp() *App {
 	//pass query to db to get stuff
 	connStr := getEnv("ALPR_DB", "postgresql://admin:admin@192.168.3.225:5533/snap")
 
+	log.Println("------------- starting application ------------")
+	log.Printf("conn str: %s", connStr)
 	ctx := context.Background()
 	dbPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
@@ -183,7 +185,7 @@ func registerRoutes(app *App) {
 
 func (app *App) search(c echo.Context) error {
 	ctx := c.Request().Context()
-
+	log.Println("Search requested...")
 	//TODO: consider attaching a prepared search query to the App struct. perf optimization. not yet since it might not be needed.
 	//get the json from the RequestBody and convert to SearchDocument struct
 
@@ -199,10 +201,14 @@ func (app *App) search(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, errMsg)
 	}
 
+	if searchDoc.PageSize > 1000 {
+		searchDoc.PageSize = 1000
+	}
+
 	//build the query
 	//query, q_vals, err := BuildSelectQuery(searchDoc)
 	query, err := BuildSelectQuery(searchDoc)
-	fmt.Println(query)
+	//fmt.Println(query)
 	if err != nil {
 		errMsg := ErrorRes{
 			Code:    "BAD_REQUEST",
@@ -252,26 +258,45 @@ func (app *App) search(c echo.Context) error {
 	// site_id required
 	// agency required
 	for i := 0; i < len(alprRecords); i++ {
-		//will there always be a SourceID and an ImageID? i believe so.
-		full_img := fmt.Sprintf("alpr/%s/%s", alprRecords[i].SourceID, alprRecords[i].ImageID)
-		plate_img := fmt.Sprintf("alpr_plate/%s/%s", alprRecords[i].SourceID, alprRecords[i].ReadID)
-		full_url, err := app.Wasabi.PresignUrl("njsnap", full_img)
-		if err != nil {
-			log.Printf("%v", err)
-		}
-		plate_url, err := app.Wasabi.PresignUrl("njsnap", plate_img)
-		if err != nil {
-			log.Println("no plate url present")
-		}
-
-		alprRecords[i].FullImg = full_url
-		alprRecords[i].PlateImg = plate_url
 		alprRecords[i].SiteID = "NJ0141000"
 		alprRecords[i].AgencyName = "East Hanover"
+
+		//Remember the pain of not deferencing!
+		sourceIDPtr := alprRecords[i].SourceID
+		imageIDPtr := alprRecords[i].ImageID
+		readIDPtr := alprRecords[i].ReadID
+
+		//will there always be a SourceID and an ImageID? i believe so.
+		if sourceIDPtr == nil {
+			log.Println("skipping presign. no sourceid")
+			continue
+		}
+
+		//verify full image
+		if imageIDPtr != nil {
+			full_img := fmt.Sprintf("alpr/%s/%s", *sourceIDPtr, *imageIDPtr)
+			full_url, err := app.Wasabi.PresignUrl("njsnap", full_img)
+			alprRecords[i].FullImg = full_url
+			if err != nil {
+				log.Printf("%v\n", err)
+			}
+		}
+
+		if readIDPtr != nil {
+			plate_img := fmt.Sprintf("alpr-plate/%s/%s", *sourceIDPtr, *readIDPtr)
+			plate_url, err := app.Wasabi.PresignUrl("njsnap", plate_img)
+			if err != nil {
+				log.Println("no plate url present")
+			}
+
+			alprRecords[i].PlateImg = plate_url
+
+		}
 
 	}
 
 	count := int64(-1)
+
 	if searchDoc.Page == 1 {
 		cq, _ := BuildCountQuery(searchDoc)
 
