@@ -13,7 +13,7 @@ converted to a sql query and a json document containing the results are returned
   "start_date": "2025-03-01T00:00:00",
   "end_date": "2025-03-30T23:59:00",
   "plate_num": "A%B%",
-  "plate_code: "NJ",
+  "plate_code": "NJ",
   "geometry": {
     "type": "Polygon",
     "coordinates": [[
