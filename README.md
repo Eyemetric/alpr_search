@@ -1,6 +1,6 @@
 # ALPR SEARCH
 
-Search for vehicles that have been captured by ALPR cameras using a simple API.
+Search API for vehicles that have been captured by ALPR cameras using a simple API.
 
 This api has a single api endpoint called search. A json document representing a search request is sent to the enpoint where it is 
 converted to a sql query and a json document containing the results are returned. 
