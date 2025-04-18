@@ -1,5 +1,14 @@
 package main
 
+/* Wasabi is an S3 compatible Object Storage Service
+The purpose of Wasabi.go is to presign urls.
+Presigning Urls allows us to provide safe image links without
+requiring the user to authenticate first. It's baked into the presign.
+These links expire after 6hours.
+Presigning also allows us to give clients a url they can use to get images directly from the S3 store
+rather than call a middleware api which will incur ingress and egress costs on Azure.
+*/
+
 import (
 	"context"
 	_ "context"
@@ -47,6 +56,7 @@ func NewWasabi(s3Host, s3Region string) (*Wasabi, error) {
 	s3Endpoint := fmt.Sprintf("https://%s", s3Host)
 	usePathStyle := true
 	//lets the sdk know we aren't calling official aws servers. GOOD LORD! This aws api is HOT TRASH!
+	//TODO: This code was listed as deprecated but I couldn't get the v2 version to work and this does work. Revisit.
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 		if service == s3.ServiceID {
 			return aws.Endpoint{

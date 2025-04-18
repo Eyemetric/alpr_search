@@ -49,9 +49,9 @@ type SearchDoc struct {
 	Page     int `json:"page"`
 	PageSize int `json:"page_size"`
 	//for cursor based paging (not implemented yet)
-	Direction     string `json:"direction,omitempty"`
-	NextPageToken string `json:"next_page_token,omitempty"`
-	PrevPageToken string `json:"prev_page_token,omitempty"`
+	//Direction     string `json:"direction,omitempty"`
+	//NextPageToken string `json:"next_page_token,omitempty"`
+	//PrevPageToken string `json:"prev_page_token,omitempty"`
 }
 
 /* Example of what SearchResults json looks like
@@ -79,6 +79,7 @@ type SearchDoc struct {
 }
 */
 
+// the main struct that returns to caller as json
 type SearchResults struct {
 	Metadata    Metadata     `json:"metadata"`
 	AlprRecords []AlprRecord `json:"results"`
@@ -129,7 +130,7 @@ func initApp() *App {
 	ctx := context.Background()
 	dbPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %w", err)
+		log.Fatalf("Unable to connect to database: %e", err)
 	}
 
 	//check that db was connected
@@ -137,7 +138,7 @@ func initApp() *App {
 		log.Fatalf("unable to ping database: %v", err)
 	}
 
-	//where our images live.
+	//where plate and vehicle images live.
 	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
 	s3_region := getEnv("S3_REGION", "us-east-1")
 
@@ -147,11 +148,6 @@ func initApp() *App {
 	}
 
 	e := echo.New()
-
-	// Middleware
-	// e.Use(middleware.Logger())
-	// e.Use(middleware.Recover())
-	// e.Use(middleware.CORS())
 
 	app := &App{
 		DB:     dbPool,
@@ -178,8 +174,11 @@ func registerRoutes(app *App) {
 
 - recieve a json request body representing an alpr search (plate num partial matches, date ranges, geo searches, vehicle characteristics, etc),
 - convert json to a SearchDoc struct and build a postgres query from it,
-- get the query results and build a SearchResults struct with Metadata (page count) and all the AlprRecords.
-- Postprocess AlprRecords by generating presigned_urls for secure access to images on wasabi (s3) without needing to authenticate (build into the presigned link)
+- get the query results and build a SearchResults struct with Metadata (page count) and all the matchin AlprRecords.
+- Postprocess AlprRecords:
+  - generate presigned_urls for secure access to images on wasabi (s3) without needing to authenticate (build into the presigned link)
+  - set static values for site_id, agency_name (temporary)
+
 - Return SearchResults.
 */
 func (app *App) search(c echo.Context) error {
@@ -188,29 +187,34 @@ func (app *App) search(c echo.Context) error {
 	//TODO: consider attaching a prepared search query to the App struct. perf optimization. not yet since it might not be needed.
 
 	searchDoc := SearchDoc{}
+	//parses json body into a SearchDoc
 	if err := c.Bind(&searchDoc); err != nil {
+		fmt.Print(err)
 		errMsg := ErrorRes{
 			Code:    "BAD_REQUEST",
 			Message: "Bad Search Document",
-			Details: "Couldn't parse SearchDoc. Check that you've included all required fields",
+			Details: "Couldn't parse SearchDoc. Check that you've included all required fields, and the search value are correct",
 		}
 		return c.JSON(http.StatusBadRequest, errMsg)
 	}
 
+	//limit max page size
 	if searchDoc.PageSize > 1000 {
 		searchDoc.PageSize = 1000
 	}
 
+	//transform the searchDoc into a SQL query
 	query, err := BuildSelectQuery(searchDoc)
 	if err != nil {
 		errMsg := ErrorRes{
 			Code:    "BAD_REQUEST",
 			Message: "Bad Search Document",
-			Details: "Couldn't convert SearchDoc to query. Check that you've included all required fields",
+			Details: "Couldn't convert SearchDoc to query. Check that you've included all required fields, and the search value are correct",
 		}
 		return c.JSON(http.StatusBadRequest, errMsg)
 	}
 
+	//get the SearchResults
 	rows, err := app.DB.Query(ctx, query.Text, query.Params...)
 	if err != nil {
 		errMsg := ErrorRes{
@@ -222,7 +226,7 @@ func (app *App) search(c echo.Context) error {
 	}
 	defer rows.Close()
 
-	//helper to scan rows into struct directly
+	//Transform db rows into an array of AlprRecord structs
 	alprRecords, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[AlprRecord])
 	if err != nil {
 		// Check specifically for no rows found, which might not be an "error"
@@ -245,11 +249,12 @@ func (app *App) search(c echo.Context) error {
 
 	fmt.Println("recoreds retrieved")
 
-	//post process Add the presigned urls to each record for public image retrieval. add hardcoded required vals
+	//post process:  Generate presigned urls for each record
+	//add hardcoded required vals
 	for i := 0; i < len(alprRecords); i++ {
 		//TODO: remember this is temporary hardcoding.
 		alprRecords[i].SiteID = "NJ0141000"
-		alprRecords[i].AgencyName = "East Hanover"
+		alprRecords[i].AgencyName = "East Hanover Township Police Department"
 
 		//Remember the pain of not deferencing a ptr!
 		sourceIDPtr := alprRecords[i].SourceID
@@ -287,7 +292,7 @@ func (app *App) search(c echo.Context) error {
 	count := int64(-1)
 
 	//we only get a count for the first page. client holds on to it until a new 1st page is requested.
-	//saves us from doing work we don't need to
+	//saves us from makeing extra queries to calculate total pages.
 	if searchDoc.Page == 1 {
 		cq, _ := BuildCountQuery(searchDoc)
 
@@ -297,6 +302,7 @@ func (app *App) search(c echo.Context) error {
 		}
 	}
 
+	//returns -1 if given -1
 	total := CalculateTotalPages(count, searchDoc.PageSize)
 	fmt.Printf("total items: %d , total pages: %d\n", count, total)
 

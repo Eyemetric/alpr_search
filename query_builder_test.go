@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"log"
 	"testing"
 )
 
@@ -13,7 +15,7 @@ func TestBuildSelectQuery(t *testing.T) {
 		"end_date": "2025-01-31T23:59:59Z",
 		"plate_num": "%MG%" }`
 
-	_ = `
+	jdata = `
 	{
 	  "page": 1,
 	  "page_size": 20,
@@ -38,12 +40,27 @@ func TestBuildSelectQuery(t *testing.T) {
 	`
 
 	//TODO: unmarshal the json to SearchDoc
-	s_query, _, err := BuildSelectQuery([]byte(jdata))
+	var s_doc SearchDoc
+	err := json.Unmarshal([]byte(jdata), &s_doc)
+	if err != nil {
+		log.Fatalf("couldn't parse json to search doc: %e", err)
+	}
+	s_query, err := BuildSelectQuery(s_doc)
 	if err != nil {
 		println("you done f'd up %v", err)
 	}
 
 	t.Logf("%s\n", s_query)
+}
+
+func TestParseDateTime(t *testing.T) {
+
+	dts := "2024-05-01T12:00:01"
+	dt, err := parseDateTime(dts)
+	if err != nil {
+		log.Fatalf("couldn't parse: %e", err)
+	}
+	log.Println(dt)
 }
 
 func TestFilterGeo(t *testing.T) {
