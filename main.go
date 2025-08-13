@@ -252,7 +252,7 @@ func (app *App) search(c echo.Context) error {
 	//post process:  Generate presigned urls for each record
 	//add hardcoded required vals
 	for i := 0; i < len(alprRecords); i++ {
-		//TODO: remember this is temporary hardcoding.
+		//TODO: remember! this is temporary hardcoding.
 		alprRecords[i].SiteID = "NJ0141000"
 		alprRecords[i].AgencyName = "East Hanover Township Police Department"
 
