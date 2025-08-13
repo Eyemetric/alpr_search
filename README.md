@@ -1,11 +1,31 @@
-# ALPR SEARCH
+# ALPR SERVICE
+This is a brief overview of the ALPR service.
 
-Search API for vehicles that have been captured by ALPR cameras using a simple API.
+A middleware service that connects PlateSmart license plate recognition service and NJSNAP.
+It provides an API with the following endpoints:
 
-This api has a single api endpoint called search. A json document representing a search request is sent to the enpoint where it is 
-converted to a sql query and a json document containing the results are returned. 
+- /Add: accepts License plate records for storage up to 3yrs
+- /Search:  a search api for searching license plate data and images with robust search capabilities such as:
+  - partial license plate data.
+  - searching within a given area via geojson
+  - date/time filtering
+  - other vehicle attributes like (color, make , model)
 
-## Search Document Example 
+- /Hotlist: allows NJSNAP to ADD|EDIT|DELETE POI items that will be used to alert the state when a vehicle with a license plate matching the BOLO is detected. In the case of Delete, that will remove the item from the hotlist.
+
+## Phase 1 Storage and Search
+
+### /Add POST an endpoint for PlateSmart license plate data.
+
+Platesmart posts json data to the endpoint representing a detected license plate. It is a constant stream of requests.
+It never ends, 24/7 365
+
+### /Search POST
+
+Search is a single endpoint allowing POST requests. A json document representing a search request is sent to the enpoint where it is converted to an sql query and a json document containing the results are returned.
+Search results are paginated and offer a maximum of 1000 results per page.
+
+#### Search Document Example
 ```json
 {
   "page": 1,
@@ -51,14 +71,14 @@ converted to a sql query and a json document containing the results are returned
 
 ```
 
-## Search Results example
+#### Search Results example
 
 ```json
 {
     "metadata": {
         "page_count": 7011
     },
-    "results": [      
+    "results": [
         {
             "plate_num": "A88UDR",
             "plate_code": "US-NJ",
@@ -80,7 +100,7 @@ converted to a sql query and a json document containing the results are returned
             "user_id": null,
             "agency_name": "East Hanover Township Police Department"
         },
-     
+
         {
             "plate_num": "A25RKE",
             "plate_code": "US-NJ",
@@ -104,4 +124,22 @@ converted to a sql query and a json document containing the results are returned
         }
     ]
 }
+```
+
+## Phase 2:  Person of Interest (POI)
+
+This feature allows police officers to add and remove vehicles from the POI hotlist. When a vehicle is entered into the system, it is checked against the POI hotlist. If the vehicle is found on the hotlist, an alert is sent to the NJSNAP system.
+
+ There are 3 types of hotlists:
+ 1. NJSnap: The most urgent and recent BOLOs sent from the state to our endpoint
+ 2. DMV: Daily bolo list updates once daily in the mornings
+ 3. NCIC: Weekly BOLO from National Crime Information Center (NCIC)
+
+
+### /Hotlist POST
+
+```json
+
+
+
 ```
