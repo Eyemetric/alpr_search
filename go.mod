@@ -1,4 +1,4 @@
-module github.com/brightblade42/snap_search
+module github.com/brightblade42/alpr_service
 
 go 1.24.0
 
