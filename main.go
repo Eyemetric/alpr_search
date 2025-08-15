@@ -5,13 +5,14 @@ import (
 	_ "database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/labstack/echo/v4"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/labstack/echo/v4"
 )
 
 //Example of what Geometry json looks like
@@ -165,8 +166,24 @@ func registerRoutes(app *App) {
 		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	api := app.Echo.Group("/api")
-	api.POST("/alpr/v1/search", app.search)
+	http_api := app.Echo.Group("/api")
+	http_api.POST("/alpr/v1/search", app.search)
+	http_api.POST("/alpr/v1/add", app.add)
+	http_api.POST("/alpr/v1/hotlist", app.add)
+	http_api.GET("/alpr/v1/health", app.health)
+}
+
+func (app *App) health(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (app *App) add(c echo.Context) error {
+	errMsg := ErrorRes{
+		Code:    "NOT_IMPLEMENTED",
+		Message: "Endpoint under construction",
+		Details: "This endpoint is currently under construction. Please check back later.",
+	}
+	return c.JSON(http.StatusInternalServerError, errMsg)
 }
 
 /*

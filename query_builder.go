@@ -158,7 +158,7 @@ func (qb *queryBuilder) applyFilters(params SearchDoc) {
 const baseSQL = `
 	    SELECT plate_num, plate_code, camera_name, read_id, read_time, image_id, make, vehicle_type, color,
 	    CASE WHEN location IS NOT NULL THEN jsonb_build_object('lat', TRUNC(ST_Y(location)::numeric, 5), 'lon', TRUNC(ST_X(location)::numeric, 5))
-	    ELSE jsonb_build_object('lat', 0.0, 'lon', 0.0) 
+	    ELSE jsonb_build_object('lat', 0.0, 'lon', 0.0)
 	    END AS location, doc->'source'->>'id' as source_id FROM alpr`
 
 // NOTE: this is limit offset style paging which may inhibit performance as the db size grows. The alternative is next_page tokens.
