@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- 2) Base table + sequence
-CREATE TABLE public.alpr (
+CREATE TABLE IF NOT EXISTS public.alpr (
   id           bigint PRIMARY KEY,                 -- PK will be amended below to (id, read_time)
   doc          jsonb,
   inserted_at  timestamp(0) without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -34,17 +34,17 @@ ALTER TABLE public.alpr DROP CONSTRAINT alpr_pkey;
 ALTER TABLE public.alpr ADD CONSTRAINT alpr_pkey PRIMARY KEY (id, read_time);
 
 -- 5) Parent indexes (these will auto-create on each chunk)
-CREATE INDEX IF NOT EXISTS alpr_read_time_idx          ON public.alpr (read_time DESC);
+CREATE INDEX IF NOT EXISTS alpr_read_time_idx          ON public.alpr (read_time DESC); --timeseries
 CREATE INDEX IF NOT EXISTS idx_camera_name             ON public.alpr (camera_name);
-CREATE INDEX IF NOT EXISTS idx_location_gist           ON public.alpr USING gist (location);
-CREATE INDEX IF NOT EXISTS idx_plate_num_trgm          ON public.alpr USING gin (plate_num gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_location_gist           ON public.alpr USING gist (location); --geo index for location
+CREATE INDEX IF NOT EXISTS idx_plate_num_trgm          ON public.alpr USING gin (plate_num gin_trgm_ops); --fuzzy search
 CREATE INDEX IF NOT EXISTS idx_read_time_and_id_desc   ON public.alpr (read_time DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_read_time_camera_name   ON public.alpr (read_time DESC, camera_name);
 CREATE INDEX IF NOT EXISTS idx_read_time_plate_num     ON public.alpr (read_time DESC, plate_num);
 
 -- (Optional) Reapply your column comments
 COMMENT ON COLUMN public.alpr.read_time IS 'the time that the alpr system read the plate from a camera';
-COMMENT ON COLUMN public.alpr.image_id IS 'used o build url o direct image access';
+COMMENT ON COLUMN public.alpr.image_id IS 'used to build url to direct image access from S3';
 COMMENT ON COLUMN public.alpr.read_id  IS 'unique id of the read scan';
 COMMENT ON COLUMN public.alpr.vehicle_type IS 'sedan, suv, etc';
 
@@ -141,7 +141,7 @@ CREATE INDEX IF NOT EXISTS alpr_ingest_readid_idx ON public.alpr_ingest (read_id
 CREATE INDEX IF NOT EXISTS alpr_ingest_loc_gist   ON public.alpr_ingest USING gist (location);
 
 -- =========================================================
--- 3) Tiny trigger using helpers (verbose location logic kept)
+-- 3) Tiny trigger using helpers
 -- =========================================================
 CREATE OR REPLACE FUNCTION public.alpr_ingest_fill()
 RETURNS TRIGGER
@@ -171,12 +171,14 @@ BEGIN
   RETURN NEW;
 END $$;
 
+-- call ingest_fill() from trigger before insert or update
 DROP TRIGGER IF EXISTS alpr_ingest_biu ON public.alpr_ingest;
 CREATE TRIGGER alpr_ingest_biu
 BEFORE INSERT OR UPDATE ON public.alpr_ingest
 FOR EACH ROW EXECUTE FUNCTION public.alpr_ingest_fill();
 
 -- 4) Constraints (idempotent via DO-block checks)
+-- can't IF NOT EXISTS directly on a Contraint so we got to do it this way
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -265,7 +267,9 @@ BEGIN
   END IF;
 END $$;
 
--- 5) Dead-letter table
+-- 5) Dead-letter table. When json is invalid or inserts into alpr table fail.
+-- we can use this to track failed inserts and retry them later.
+-- one of the goals in this project is to lose nothing and recover state manually or automatically.
 CREATE TABLE IF NOT EXISTS public.alpr_deadletter (
   id        BIGSERIAL PRIMARY KEY,
   failed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -277,10 +281,11 @@ CREATE TABLE IF NOT EXISTS public.alpr_deadletter (
   context   TEXT,
   doc       JSONB       NOT NULL
 );
+
 CREATE INDEX IF NOT EXISTS alpr_deadletter_failed_at_idx
   ON public.alpr_deadletter (failed_at DESC);
 
--- 6) Entrypoint & retry
+-- 6) Entrypoint for staging, extenal programs call this
 CREATE OR REPLACE FUNCTION public.ingest_alpr(p_doc JSONB)
 RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -310,6 +315,7 @@ BEGIN
       image_id, location, read_id, make, vehicle_type, color
     FROM public.alpr_ingest WHERE id = v_id;
 
+    -- NOT Sure about this here
     DELETE FROM public.alpr_ingest WHERE id = v_id;
     RETURN 'ok';
 
@@ -324,8 +330,12 @@ BEGIN
     FROM public.alpr_ingest WHERE id = v_id;
     RETURN 'deadletter:alpr-insert';
   END;
+
+  -- I think this should be where the alert goes, if we're here we know the alpr insert succeeded
+
 END $$;
 
+-- we could call this function from an external process, or manually from a db program like psql
 CREATE OR REPLACE FUNCTION public.reprocess_deadletter(p_id BIGINT)
 RETURNS TEXT LANGUAGE plpgsql AS $$
 DECLARE v_doc JSONB; v_res TEXT;
@@ -337,7 +347,7 @@ BEGIN
 END $$;
 
 
---- hotlist and queue implementation ---
+--- HOTLIST and queue implementation ---
 -- =========================
 -- Enums
 -- =========================
@@ -414,6 +424,7 @@ create index if not exists idx_alerts_hotlist_id on alerts (hotlist_id);
 
 -- =========================
 -- Ops events (optional)
+-- TODO: This may not be necessary, but it's a good idea to have a way to track events related to alerts.
 -- =========================
 create table if not exists hotlist_alert_events (
   id bigserial primary key,
@@ -438,6 +449,7 @@ create index if not exists idx_hotlist_alert_state_next_due_at on hotlist_alert_
 
 -- =========================
 -- Helpers
+-- TODO: move to utils?
 -- =========================
 create or replace function next_hour(t timestamptz)
 returns timestamptz language sql immutable as
@@ -454,6 +466,8 @@ $$;
 
 -- =========================
 -- Align new alerts to current global schedule
+-- We align alerts to hotlist state so all new records are on the same retry schedule if we're in a degraded mode
+-- This is to prevent the "Thundering Herd" problem where many alerts are queued at the same time
 -- =========================
 create or replace function alerts_align_to_hotlist_state()
 returns trigger language plpgsql as $$
@@ -485,12 +499,14 @@ begin
   return new;
 end$$;
 
+-- an alert has been inserted, notify workers (ie the program responsible for pulling alert from queue to send)
 drop trigger if exists trg_alerts_notify on alerts;
 create trigger trg_alerts_notify
 after insert on alerts
 for each row execute function alerts_notify_insert();
 
 -- =========================
+-- Retry strategy proposed by NJSNAP (refer to docs for details)
 -- Failure scheduler (global IF/ELSIF)
 -- 20s×3 → 60s×4 → hourly bursts (hrs 2–4; 0s/20s/40s) → hourly single
 -- Notifies 'vendor_down' once after 4 hours.
@@ -618,6 +634,7 @@ end$$;
 
 -- =========================
 -- (Optional) Reclaimer for stuck 'processing' rows
+-- TODO: is this really needed? We might want to keep it around for debugging purposes.
 -- =========================
 create or replace function alerts_reclaim_stuck()
 returns int language plpgsql as $$
@@ -641,6 +658,8 @@ end$$;
 -- Ingest helper: upsert every POI in a JSON payload
 -- Usage: select hotlists_upsert_pois($$ {"POIs": [...]} $$::jsonb);
 -- Returns: number of rows inserted/updated
+-- NOTE: INSERTS new hotlist item, replaces existing hotlist item with the same hostlist_id
+-- this means we have an EDIT hostlist
 -- =========================
 create or replace function hotlists_upsert_pois(p_doc jsonb)
 returns int language plpgsql as $$

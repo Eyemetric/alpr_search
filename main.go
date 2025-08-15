@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Eyemetric/alpr_service/repository"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
@@ -117,9 +118,10 @@ type ErrorRes struct {
 }
 
 type App struct {
-	DB     *pgxpool.Pool
+	DB     *pgxpool.Pool //TODO: this will be removed when everything is moved to the repo
 	Echo   *echo.Echo
 	Wasabi *Wasabi
+	Repo   *repository.PgxAlprRepo
 }
 
 func initApp() *App {
@@ -150,10 +152,13 @@ func initApp() *App {
 
 	e := echo.New()
 
+	repo := repository.NewPgxAlprRepo(dbPool)
+
 	app := &App{
 		DB:     dbPool,
 		Echo:   e,
 		Wasabi: wasabi,
+		Repo:   repo,
 	}
 
 	registerRoutes(app)
@@ -170,7 +175,6 @@ func registerRoutes(app *App) {
 	http_api.POST("/alpr/v1/search", app.search)
 	http_api.POST("/alpr/v1/add", app.add)
 	http_api.POST("/alpr/v1/hotlist", app.add)
-	http_api.GET("/alpr/v1/health", app.health)
 }
 
 func (app *App) health(c echo.Context) error {
