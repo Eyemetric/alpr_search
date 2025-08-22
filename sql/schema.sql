@@ -92,7 +92,7 @@ BEGIN
   IF val IS NULL THEN RETURN NULL; END IF;
 
   IF jsonb_typeof(val) = 'object' THEN
-    lon := (val->>'lon')::float8; lat := (val->>'lat')::float8;
+    lon := (val->>'longitude')::float8; lat := (val->>'latitude')::float8;
   ELSIF jsonb_typeof(val) = 'array' THEN
     lon := (val->>0)::float8;     lat := (val->>1)::float8;
   ELSE
@@ -143,25 +143,27 @@ CREATE INDEX IF NOT EXISTS alpr_ingest_loc_gist   ON public.alpr_ingest USING gi
 -- =========================================================
 -- 3) Tiny trigger using helpers
 -- =========================================================
-CREATE OR REPLACE FUNCTION public.alpr_ingest_fill()
-RETURNS TRIGGER
-LANGUAGE plpgsql AS $$
+CREATE FUNCTION alpr_ingest_fill() RETURNS TRIGGER
+    language plpgsql
+AS
+$$
 BEGIN
   IF jsonb_typeof(NEW.doc) <> 'object' THEN
     RAISE EXCEPTION USING errcode='22023', message='doc must be a JSON object';
   END IF;
 
-  NEW.plate_num    := COALESCE(NEW.plate_num,    alpr_util.jtext(NEW.doc, 'plate_num'));
-  NEW.camera_name  := COALESCE(NEW.camera_name,  alpr_util.jtext(NEW.doc, 'camera_name'));
-  NEW.plate_code   := COALESCE(NEW.plate_code,   alpr_util.jtext(NEW.doc, 'plate_code'));
-  NEW.image_id     := COALESCE(NEW.image_id,     alpr_util.jtext(NEW.doc, 'image_id'));
-  NEW.read_id      := COALESCE(NEW.read_id,      alpr_util.jtext(NEW.doc, 'read_id'));
-  NEW.make         := COALESCE(NEW.make,         alpr_util.jtext(NEW.doc, 'make'));
-  NEW.vehicle_type := COALESCE(NEW.vehicle_type, alpr_util.jtext(NEW.doc, 'vehicle_type'));
-  NEW.color        := COALESCE(NEW.color,        alpr_util.jtext(NEW.doc, 'color'));
+  --NEW.plate_num    := COALESCE(NEW.plate_num,    alpr_util.jtext(NEW.doc, 'plate'));
+  NEW.plate_num    := COALESCE(NEW.plate_num,  NULLIF(btrim(NEW.doc->'plate'->>'tag'), ''));
+  NEW.camera_name  := COALESCE(NEW.camera_name,  NULLIF(btrim(NEW.doc->'source'->>'name'), ''));
+  NEW.plate_code   := COALESCE(NEW.plate_code,   NULLIF(btrim(NEW.doc->'plate'->>'code'), ''));
+  NEW.image_id     := COALESCE(NEW.image_id,     NULLIF(btrim(NEW.doc->'image'->>'id'), ''));
+  NEW.read_id      := COALESCE(NEW.read_id,      alpr_util.jtext(NEW.doc, 'id'));
+  NEW.make         := COALESCE(NEW.make,         NULLIF(btrim(NEW.doc->'vehicle'->'make'->>'name'), ''));
+  NEW.vehicle_type := COALESCE(NEW.vehicle_type, NULLIF(btrim(NEW.doc->'vehicle'->'type'->>'name'), ''));
+  NEW.color        := COALESCE(NEW.color,        NULLIF(btrim(NEW.doc->'color'->>'code'), ''));
 
   IF NEW.read_time IS NULL THEN
-    NEW.read_time := alpr_util.parse_ts(NEW.doc->'read_time');
+    NEW.read_time := alpr_util.parse_ts(NEW.doc->'timestamp');
   END IF;
 
   IF NEW.location IS NULL THEN
@@ -195,8 +197,8 @@ BEGIN
   ) THEN
     ALTER TABLE public.alpr_ingest
       ADD CONSTRAINT plate_num_required
-      CHECK (COALESCE(plate_num, doc->>'plate_num') IS NOT NULL
-             AND btrim(COALESCE(plate_num, doc->>'plate_num')) <> '');
+      CHECK (COALESCE(plate_num, doc->'plate'->>'code') IS NOT NULL
+             AND btrim(COALESCE(plate_num, doc->'plate'->>'code')) <> '');
   END IF;
 
   IF NOT EXISTS (
@@ -205,7 +207,7 @@ BEGIN
   ) THEN
     ALTER TABLE public.alpr_ingest
       ADD CONSTRAINT read_time_shape_ok
-      CHECK (doc ? 'read_time' AND jsonb_typeof(doc->'read_time') IN ('string','number'));
+      CHECK (doc ? 'timestamp' AND jsonb_typeof(doc->'timestamp') IN ('string','number'));
   END IF;
 
   IF NOT EXISTS (
@@ -285,7 +287,7 @@ CREATE TABLE IF NOT EXISTS public.alpr_deadletter (
 CREATE INDEX IF NOT EXISTS alpr_deadletter_failed_at_idx
   ON public.alpr_deadletter (failed_at DESC);
 
--- 6) Entrypoint for staging, extenal programs call this
+-- 6) Entrypoint for staging, external programs call this
 CREATE OR REPLACE FUNCTION public.ingest_alpr(p_doc JSONB)
 RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -317,7 +319,7 @@ BEGIN
 
     -- NOT Sure about this here
     DELETE FROM public.alpr_ingest WHERE id = v_id;
-    RETURN 'ok';
+    RETURN 'ok:alpr-ingest';
 
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_sqlstate = returned_sqlstate,

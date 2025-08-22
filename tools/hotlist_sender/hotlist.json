@@ -1,0 +1,30 @@
+{
+  "POIs": [
+    {
+      "ID": "4",
+      "Status": "ADD",
+      "StartDate": "2025-08-18T13:28:38.277",
+      "ExpirationDate": "2025-08-30T13:28:38.277",
+      "UserVisibility": "Y",
+      "NJSNAPHitNotification": "Y",
+      "ReasonType": "NON-NCIC",
+      "Reason": "BOLO ALERT",
+      "PlateNumber": "TEST1234",
+      "PlateSt": "NJ",
+      "NICNum": "TEST1234",
+      "VehicleMake": "",
+      "VehicleModel": "",
+      "VehicleYear": "",
+      "VehicleColor": "",
+      "VehicleSize": "",
+      "ContactName": "Manager Furst, Last name",
+      "ContactNo": "764-474-4483",
+      "ContactEmail": "kiran@gtbm.com",
+      "CaseNo": "WE3456",
+      "Comment": "",
+      "DeptORI": "NJTEST4567",
+      "DeptName": "CENTRALTEST1",
+      "EntryDate": "2025-08-13T10:08:10.37"
+    }
+  ]
+}
