@@ -7,31 +7,19 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimDue = `-- name: ClaimDue :many
-with cte as (
-   select id from alerts
-  where status in ('pending', 'queued') and visible_at <= now()
-  order by created_at
-  for update skip locked
-  limit $2
-)
-update alerts a
-set status='processing',
-    locked_at=now(),
-    locked_by=$1,
-    processing_deadline=now() + interval '30 seconds'
-from cte
-where a.id = cte.id
-returning a.id, a.plate_id, a.hotlist_id
+SELECT
+    t.id::bigint as id,
+    t.plate_id::bigint as plate_id,
+    t.hotlist_id::bigint as hotlist_id
+FROM alpr_util.claim_due($1::integer , $2::text) AS t(id bigint, plate_id bigint, hotlist_id bigint)
 `
 
 type ClaimDueParams struct {
-	WorkerID pgtype.Text
 	Batch    int32
+	WorkerID string
 }
 
 type ClaimDueRow struct {
@@ -41,7 +29,7 @@ type ClaimDueRow struct {
 }
 
 func (q *Queries) ClaimDue(ctx context.Context, arg ClaimDueParams) ([]ClaimDueRow, error) {
-	rows, err := q.db.Query(ctx, claimDue, arg.WorkerID, arg.Batch)
+	rows, err := q.db.Query(ctx, claimDue, arg.Batch, arg.WorkerID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +49,7 @@ func (q *Queries) ClaimDue(ctx context.Context, arg ClaimDueParams) ([]ClaimDueR
 }
 
 const ingestALPR = `-- name: IngestALPR :one
-select public.ingest_alpr($1::jsonb) as result
+select alpr_util.ingest_alpr($1::jsonb) as result
 `
 
 func (q *Queries) IngestALPR(ctx context.Context, doc []byte) (string, error) {
@@ -72,7 +60,7 @@ func (q *Queries) IngestALPR(ctx context.Context, doc []byte) (string, error) {
 }
 
 const insertHotlist = `-- name: InsertHotlist :one
-select hotlists_upsert_pois($1::jsonb) as added
+select alpr_util.hotlists_upsert_pois($1::jsonb) as added
 `
 
 func (q *Queries) InsertHotlist(ctx context.Context, doc []byte) (int32, error) {
@@ -83,21 +71,18 @@ func (q *Queries) InsertHotlist(ctx context.Context, doc []byte) (int32, error) 
 }
 
 const nextWake = `-- name: NextWake :one
-select least(
-    coalesce((select min(visible_at) as wake from alerts
-             where status in ('pending', 'queued') and visble_at > now()), 'infinity'),
-            (select next_due_at from hotlist_alert_state where id=1))
+select alpr_util.next_wake()
 `
 
 func (q *Queries) NextWake(ctx context.Context) (interface{}, error) {
 	row := q.db.QueryRow(ctx, nextWake)
-	var column_1 interface{}
-	err := row.Scan(&column_1)
-	return column_1, err
+	var next_wake interface{}
+	err := row.Scan(&next_wake)
+	return next_wake, err
 }
 
 const reclaimStuck = `-- name: ReclaimStuck :one
-select alerts_reclaim_stuck()
+select alpr_util.alerts_reclaim_stuck()
 `
 
 func (q *Queries) ReclaimStuck(ctx context.Context) (int32, error) {
@@ -108,7 +93,7 @@ func (q *Queries) ReclaimStuck(ctx context.Context) (int32, error) {
 }
 
 const scheduleFailure = `-- name: ScheduleFailure :exec
-select hostlist_alert_schedure_failure($1, $2)
+select alpr_util.hostlist_alert_schedure_failure($1, $2)
 `
 
 type ScheduleFailureParams struct {
@@ -122,7 +107,7 @@ func (q *Queries) ScheduleFailure(ctx context.Context, arg ScheduleFailureParams
 }
 
 const scheduleSuccess = `-- name: ScheduleSuccess :exec
-select hotlist_alert_schedule_success($1)
+select alpr_util.hotlist_alert_schedule_success($1)
 `
 
 func (q *Queries) ScheduleSuccess(ctx context.Context, id int64) error {

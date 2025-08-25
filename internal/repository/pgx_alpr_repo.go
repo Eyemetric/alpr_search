@@ -35,7 +35,7 @@ func (a *PgxAlprRepo) IngestPlateRead(ctx context.Context, doc []byte) (string, 
 func (a *PgxAlprRepo) AddHotlist(ctx context.Context, hotlist []byte) (int32, error) {
 	add_cnt, err := a.queries.InsertHotlist(ctx, hotlist)
 	if err != nil {
-		return add_cnt, fmt.Errorf("failed to add hotlist: %w", err)
+		return 0, fmt.Errorf("failed to add hotlist: %w", err)
 	}
-	return add_cnt, nil
+	return add_cnt.(int32), nil
 }

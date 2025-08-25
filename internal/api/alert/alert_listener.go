@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Eyemetric/alpr_service/internal/db"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,7 +28,7 @@ func (s SimSender) Send(ctx context.Context, j Job) error {
 	if s.FailureOnOddPlate && (j.PlateID%2 == 1) {
 		return errors.New("simulated vendor failure")
 	}
-	fmt.Printf("send alert id=%d (plateid=%d, hotlist=%d\n", j.ID, j.PlateID, j.HotlistID)
+	fmt.Printf("send alert id=%d (plateid=%d, hotlist=%d)\n", j.ID, j.PlateID, j.HotlistID)
 	return nil
 }
 
@@ -51,12 +50,12 @@ func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error
 	go func() {
 		defer ln.Release()
 		//convert go type to postgres
-		workerID := pgtype.Text{String: "worker-1", Valid: true}
+		//workerID := pgtype.Text{String: "worker-1", Valid: true}
 
 		for ctx.Err() == nil {
 			//drain the jobs
 			for {
-				rows, err := q.ClaimDue(ctx, db.ClaimDueParams{Batch: 1, WorkerID: workerID})
+				rows, err := q.ClaimDue(ctx, db.ClaimDueParams{Batch: 1, WorkerID: "worker-1"})
 				if err != nil {
 					log.Printf("claim error: %v", err)
 					break
@@ -69,6 +68,7 @@ func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error
 
 				sendCtx, cancel := context.WithTimeout(ctx, req_timeout)
 				//TODO: We actually need to build a json doc to send
+
 				err = s.Send(sendCtx, hitJob)
 				cancel()
 
