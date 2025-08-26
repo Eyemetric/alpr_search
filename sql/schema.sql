@@ -464,7 +464,7 @@ declare
   s hotlist_alert_state%rowtype;
   hours_since_first double precision;
 begin
-  perform pg_advisory_lock(42);
+  perform pg_advisory_xact_lock(42);
   select * into s from hotlist_alert_state where id=1 for update;
 
   if s.first_failed_at is null then
@@ -541,7 +541,6 @@ begin
       processing_deadline = null
   where id = p_alert_id;
 
-  perform pg_advisory_unlock(42);
 end$$;
 
 -- =========================

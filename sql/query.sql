@@ -22,3 +22,32 @@ select alpr_util.hostlist_alert_schedure_failure(sqlc.arg(id), sqlc.arg(err));
 
 -- name: ReclaimStuck :one
 select alpr_util.alerts_reclaim_stuck();
+
+-- name: GetPlateHit :many
+SELECT
+    h.hotlist_id AS ID,
+    'eyemetric' AS eventID,
+    a.read_time AS eventDateTime,
+    h.plate_number AS plateNumber,
+    a.plate_code AS plateSt,
+    '' AS plateNumber2,
+    '' AS confidence,
+    a.make AS vehicleMake,
+    '' AS vehicleModel,
+    a.color AS vehicleColor,
+    '' AS vehicleSize,
+    a.vehicle_type AS vehicleType,
+    '' AS cameraID,
+    a.camera_name AS cameraName,
+    'Fixed' AS cameraType,
+    'East Hanover Township Police Department' AS agency,
+    '' AS ori,
+    0.0 AS latitude,
+    0.0 AS longitude,
+    '' AS direction,
+    '' AS imageVehicle,
+    '' AS imagePlate,
+    '' AS additionalImage1,
+    '' AS additionalImage2
+    FROM alpr a join hotlists h on a.plate_num = h.plate_number
+  where a.id = @plate_id::bigint and h.id = @hotlist_id::bigint;

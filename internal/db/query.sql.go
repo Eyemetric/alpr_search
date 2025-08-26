@@ -7,6 +7,8 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimDue = `-- name: ClaimDue :many
@@ -38,6 +40,113 @@ func (q *Queries) ClaimDue(ctx context.Context, arg ClaimDueParams) ([]ClaimDueR
 	for rows.Next() {
 		var i ClaimDueRow
 		if err := rows.Scan(&i.ID, &i.PlateID, &i.HotlistID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPlateHit = `-- name: GetPlateHit :many
+SELECT
+    h.hotlist_id AS ID,
+    'eyemetric' AS eventID,
+    a.read_time AS eventDateTime,
+    h.plate_number AS plateNumber,
+    a.plate_code AS plateSt,
+    '' AS plateNumber2,
+    '' AS confidence,
+    a.make AS vehicleMake,
+    '' AS vehicleModel,
+    a.color AS vehicleColor,
+    '' AS vehicleSize,
+    a.vehicle_type AS vehicleType,
+    '' AS cameraID,
+    a.camera_name AS cameraName,
+    'Fixed' AS cameraType,
+    'East Hanover Township Police Department' AS agency,
+    '' AS ori,
+    0.0 AS latitude,
+    0.0 AS longitude,
+    '' AS direction,
+    '' AS imageVehicle,
+    '' AS imagePlate,
+    '' AS additionalImage1,
+    '' AS additionalImage2
+    FROM alpr a join hotlists h on a.plate_num = h.plate_number
+  where a.id = $1::bigint and h.id = $2::bigint
+`
+
+type GetPlateHitParams struct {
+	PlateID   int64
+	HotlistID int64
+}
+
+type GetPlateHitRow struct {
+	ID               string
+	Eventid          string
+	Eventdatetime    pgtype.Timestamp
+	Platenumber      string
+	Platest          pgtype.Text
+	Platenumber2     string
+	Confidence       string
+	Vehiclemake      pgtype.Text
+	Vehiclemodel     string
+	Vehiclecolor     pgtype.Text
+	Vehiclesize      string
+	Vehicletype      pgtype.Text
+	Cameraid         string
+	Cameraname       pgtype.Text
+	Cameratype       string
+	Agency           string
+	Ori              string
+	Latitude         float64
+	Longitude        float64
+	Direction        string
+	Imagevehicle     string
+	Imageplate       string
+	Additionalimage1 string
+	Additionalimage2 string
+}
+
+func (q *Queries) GetPlateHit(ctx context.Context, arg GetPlateHitParams) ([]GetPlateHitRow, error) {
+	rows, err := q.db.Query(ctx, getPlateHit, arg.PlateID, arg.HotlistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetPlateHitRow
+	for rows.Next() {
+		var i GetPlateHitRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Eventid,
+			&i.Eventdatetime,
+			&i.Platenumber,
+			&i.Platest,
+			&i.Platenumber2,
+			&i.Confidence,
+			&i.Vehiclemake,
+			&i.Vehiclemodel,
+			&i.Vehiclecolor,
+			&i.Vehiclesize,
+			&i.Vehicletype,
+			&i.Cameraid,
+			&i.Cameraname,
+			&i.Cameratype,
+			&i.Agency,
+			&i.Ori,
+			&i.Latitude,
+			&i.Longitude,
+			&i.Direction,
+			&i.Imagevehicle,
+			&i.Imageplate,
+			&i.Additionalimage1,
+			&i.Additionalimage2,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
