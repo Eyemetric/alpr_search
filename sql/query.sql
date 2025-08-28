@@ -6,10 +6,18 @@ select alpr_util.hotlists_upsert_pois(@doc::jsonb) as added;
 
 -- name: ClaimDue :many
 SELECT
-    t.id::bigint as id,
-    t.plate_id::bigint as plate_id,
-    t.hotlist_id::bigint as hotlist_id
-FROM alpr_util.claim_due(@batch::integer , @worker_id::text) AS t(id bigint, plate_id bigint, hotlist_id bigint);
+    id::bigint as id,
+    plate_id::bigint as plate_id,
+    hotlist_id::bigint as hotlist_id
+FROM alpr_util.claim_due(@batch::integer , @worker_id::text);
+
+
+
+-- SELECT
+--     t.id::bigint as id,
+--     t.plate_id::bigint as plate_id,
+--     t.hotlist_id::bigint as hotlist_id
+-- FROM alpr_util.claim_due(@batch::integer , @worker_id::text) AS t(id bigint, plate_id bigint, hotlist_id bigint);
 
 
 
@@ -41,13 +49,15 @@ SELECT
     a.camera_name AS cameraName,
     'Fixed' AS cameraType,
     'East Hanover Township Police Department' AS agency,
-    '' AS ori,
-    0.0 AS latitude,
-    0.0 AS longitude,
+    'NJ0141000' AS ori,
+    coalesce(ST_Y(location), 0) AS latitude,
+    coalesce(ST_X(location), 0) AS longitude,
     '' AS direction,
     '' AS imageVehicle,
     '' AS imagePlate,
     '' AS additionalImage1,
-    '' AS additionalImage2
+    '' AS additionalImage2,
+    a.image_id,
+    coalesce(a.doc->'source'->>'id', '') as source_id
     FROM alpr a join hotlists h on a.plate_num = h.plate_number
   where a.id = @plate_id::bigint and h.id = @hotlist_id::bigint;

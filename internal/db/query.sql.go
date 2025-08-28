@@ -13,21 +13,21 @@ import (
 
 const claimDue = `-- name: ClaimDue :many
 SELECT
-    t.id::bigint as id,
-    t.plate_id::bigint as plate_id,
-    t.hotlist_id::bigint as hotlist_id
-FROM alpr_util.claim_due($1::integer , $2::text) AS t(id bigint, plate_id bigint, hotlist_id bigint)
+    id::bigint as id,
+    plate_id::bigint as plate_id,
+    hotlist_id::bigint as hotlist_id
+FROM alpr_util.claim_due($1::integer , $2::text)
 `
 
 type ClaimDueParams struct {
-	Batch    int32
-	WorkerID string
+	Batch    int32  `json:"batch"`
+	WorkerID string `json:"workerID"`
 }
 
 type ClaimDueRow struct {
-	ID        int64
-	PlateID   int64
-	HotlistID int64
+	ID        int64 `json:"id"`
+	PlateID   int64 `json:"plateID"`
+	HotlistID int64 `json:"hotlistID"`
 }
 
 func (q *Queries) ClaimDue(ctx context.Context, arg ClaimDueParams) ([]ClaimDueRow, error) {
@@ -36,7 +36,7 @@ func (q *Queries) ClaimDue(ctx context.Context, arg ClaimDueParams) ([]ClaimDueR
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ClaimDueRow
+	items := []ClaimDueRow{}
 	for rows.Next() {
 		var i ClaimDueRow
 		if err := rows.Scan(&i.ID, &i.PlateID, &i.HotlistID); err != nil {
@@ -68,48 +68,52 @@ SELECT
     a.camera_name AS cameraName,
     'Fixed' AS cameraType,
     'East Hanover Township Police Department' AS agency,
-    '' AS ori,
-    0.0 AS latitude,
-    0.0 AS longitude,
+    'NJ0141000' AS ori,
+    coalesce(ST_Y(location), 0) AS latitude,
+    coalesce(ST_X(location), 0) AS longitude,
     '' AS direction,
     '' AS imageVehicle,
     '' AS imagePlate,
     '' AS additionalImage1,
-    '' AS additionalImage2
+    '' AS additionalImage2,
+    a.image_id,
+    coalesce(a.doc->'source'->>'id', '') as source_id
     FROM alpr a join hotlists h on a.plate_num = h.plate_number
   where a.id = $1::bigint and h.id = $2::bigint
 `
 
 type GetPlateHitParams struct {
-	PlateID   int64
-	HotlistID int64
+	PlateID   int64 `json:"plateID"`
+	HotlistID int64 `json:"hotlistID"`
 }
 
 type GetPlateHitRow struct {
-	ID               string
-	Eventid          string
-	Eventdatetime    pgtype.Timestamp
-	Platenumber      string
-	Platest          pgtype.Text
-	Platenumber2     string
-	Confidence       string
-	Vehiclemake      pgtype.Text
-	Vehiclemodel     string
-	Vehiclecolor     pgtype.Text
-	Vehiclesize      string
-	Vehicletype      pgtype.Text
-	Cameraid         string
-	Cameraname       pgtype.Text
-	Cameratype       string
-	Agency           string
-	Ori              string
-	Latitude         float64
-	Longitude        float64
-	Direction        string
-	Imagevehicle     string
-	Imageplate       string
-	Additionalimage1 string
-	Additionalimage2 string
+	ID               string           `json:"id"`
+	Eventid          string           `json:"eventid"`
+	Eventdatetime    pgtype.Timestamp `json:"eventdatetime"`
+	Platenumber      string           `json:"platenumber"`
+	Platest          pgtype.Text      `json:"platest"`
+	Platenumber2     string           `json:"platenumber2"`
+	Confidence       string           `json:"confidence"`
+	Vehiclemake      pgtype.Text      `json:"vehiclemake"`
+	Vehiclemodel     string           `json:"vehiclemodel"`
+	Vehiclecolor     pgtype.Text      `json:"vehiclecolor"`
+	Vehiclesize      string           `json:"vehiclesize"`
+	Vehicletype      pgtype.Text      `json:"vehicletype"`
+	Cameraid         string           `json:"cameraid"`
+	Cameraname       pgtype.Text      `json:"cameraname"`
+	Cameratype       string           `json:"cameratype"`
+	Agency           string           `json:"agency"`
+	Ori              string           `json:"ori"`
+	Latitude         interface{}      `json:"latitude"`
+	Longitude        interface{}      `json:"longitude"`
+	Direction        string           `json:"direction"`
+	Imagevehicle     string           `json:"imagevehicle"`
+	Imageplate       string           `json:"imageplate"`
+	Additionalimage1 string           `json:"additionalimage1"`
+	Additionalimage2 string           `json:"additionalimage2"`
+	ImageID          pgtype.Text      `json:"imageID"`
+	SourceID         interface{}      `json:"sourceID"`
 }
 
 func (q *Queries) GetPlateHit(ctx context.Context, arg GetPlateHitParams) ([]GetPlateHitRow, error) {
@@ -118,7 +122,7 @@ func (q *Queries) GetPlateHit(ctx context.Context, arg GetPlateHitParams) ([]Get
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetPlateHitRow
+	items := []GetPlateHitRow{}
 	for rows.Next() {
 		var i GetPlateHitRow
 		if err := rows.Scan(
@@ -146,6 +150,8 @@ func (q *Queries) GetPlateHit(ctx context.Context, arg GetPlateHitParams) ([]Get
 			&i.Imageplate,
 			&i.Additionalimage1,
 			&i.Additionalimage2,
+			&i.ImageID,
+			&i.SourceID,
 		); err != nil {
 			return nil, err
 		}
@@ -180,9 +186,19 @@ func (q *Queries) InsertHotlist(ctx context.Context, doc []byte) (int32, error) 
 }
 
 const nextWake = `-- name: NextWake :one
+
+
+
 select alpr_util.next_wake()
 `
 
+// SELECT
+//
+//	t.id::bigint as id,
+//	t.plate_id::bigint as plate_id,
+//	t.hotlist_id::bigint as hotlist_id
+//
+// FROM alpr_util.claim_due(@batch::integer , @worker_id::text) AS t(id bigint, plate_id bigint, hotlist_id bigint);
 func (q *Queries) NextWake(ctx context.Context) (interface{}, error) {
 	row := q.db.QueryRow(ctx, nextWake)
 	var next_wake interface{}
@@ -206,8 +222,8 @@ select alpr_util.hostlist_alert_schedure_failure($1, $2)
 `
 
 type ScheduleFailureParams struct {
-	ID  interface{}
-	Err interface{}
+	ID  interface{} `json:"id"`
+	Err interface{} `json:"err"`
 }
 
 func (q *Queries) ScheduleFailure(ctx context.Context, arg ScheduleFailureParams) error {

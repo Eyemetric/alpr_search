@@ -79,8 +79,7 @@ func initApp() *App {
 
 func startAlertListener(app *App) {
 	s := alert.SimSender{FailureOnOddPlate: false}
-
-	err := alert.StartAlertListener(app.Context, app.DB, s)
+	err := alert.StartAlertListener(app.Context, app.DB, app.Wasabi, s)
 	if err != nil {
 		log.Fatalf("could not start alert listener: %v", err)
 	}

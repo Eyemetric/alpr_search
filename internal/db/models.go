@@ -9,93 +9,93 @@ import (
 )
 
 type Alert struct {
-	ID                 int64
-	PlateID            int64
-	HotlistID          int64
-	CreatedAt          pgtype.Timestamptz
-	Status             interface{}
-	Attempts           int32
-	LastError          pgtype.Text
-	LockedAt           pgtype.Timestamptz
-	LockedBy           pgtype.Text
-	ProcessingDeadline pgtype.Timestamptz
-	VisibleAt          pgtype.Timestamptz
+	ID                 int64              `json:"id"`
+	PlateID            int64              `json:"plateID"`
+	HotlistID          int64              `json:"hotlistID"`
+	CreatedAt          pgtype.Timestamptz `json:"createdAt"`
+	Status             interface{}        `json:"status"`
+	Attempts           int32              `json:"attempts"`
+	LastError          pgtype.Text        `json:"lastError"`
+	LockedAt           pgtype.Timestamptz `json:"lockedAt"`
+	LockedBy           pgtype.Text        `json:"lockedBy"`
+	ProcessingDeadline pgtype.Timestamptz `json:"processingDeadline"`
+	VisibleAt          pgtype.Timestamptz `json:"visibleAt"`
 }
 
 type Alpr struct {
-	ID         int64
-	Doc        []byte
-	InsertedAt pgtype.Timestamp
-	PlateNum   pgtype.Text
+	ID         int64            `json:"id"`
+	Doc        []byte           `json:"doc"`
+	InsertedAt pgtype.Timestamp `json:"insertedAt"`
+	PlateNum   pgtype.Text      `json:"plateNum"`
 	// the time that the alpr system read the plate from a camera
-	ReadTime   pgtype.Timestamp
-	CameraName pgtype.Text
-	PlateCode  pgtype.Text
+	ReadTime   pgtype.Timestamp `json:"readTime"`
+	CameraName pgtype.Text      `json:"cameraName"`
+	PlateCode  pgtype.Text      `json:"plateCode"`
 	// used to build url to direct image access from S3
-	ImageID  pgtype.Text
-	Location interface{}
+	ImageID  pgtype.Text `json:"imageID"`
+	Location interface{} `json:"location"`
 	// unique id of the read scan
-	ReadID pgtype.Text
-	Make   pgtype.Text
+	ReadID pgtype.Text `json:"readID"`
+	Make   pgtype.Text `json:"make"`
 	// sedan, suv, etc
-	VehicleType pgtype.Text
-	Color       pgtype.Text
+	VehicleType pgtype.Text `json:"vehicleType"`
+	Color       pgtype.Text `json:"color"`
 }
 
 type AlprDeadletter struct {
-	ID       int64
-	FailedAt pgtype.Timestamptz
-	Stage    string
-	Sqlstate pgtype.Text
-	Message  pgtype.Text
-	Detail   pgtype.Text
-	Hint     pgtype.Text
-	Context  pgtype.Text
-	Doc      []byte
+	ID       int64              `json:"id"`
+	FailedAt pgtype.Timestamptz `json:"failedAt"`
+	Stage    string             `json:"stage"`
+	Sqlstate pgtype.Text        `json:"sqlstate"`
+	Message  pgtype.Text        `json:"message"`
+	Detail   pgtype.Text        `json:"detail"`
+	Hint     pgtype.Text        `json:"hint"`
+	Context  pgtype.Text        `json:"context"`
+	Doc      []byte             `json:"doc"`
 }
 
 type AlprIngest struct {
-	ID          int64
-	Doc         []byte
-	PlateNum    pgtype.Text
-	ReadTime    pgtype.Timestamptz
-	CameraName  pgtype.Text
-	PlateCode   pgtype.Text
-	ImageID     pgtype.Text
-	Location    interface{}
-	ReadID      pgtype.Text
-	Make        pgtype.Text
-	VehicleType pgtype.Text
-	Color       pgtype.Text
-	InsertedAt  pgtype.Timestamptz
+	ID          int64              `json:"id"`
+	Doc         []byte             `json:"doc"`
+	PlateNum    pgtype.Text        `json:"plateNum"`
+	ReadTime    pgtype.Timestamptz `json:"readTime"`
+	CameraName  pgtype.Text        `json:"cameraName"`
+	PlateCode   pgtype.Text        `json:"plateCode"`
+	ImageID     pgtype.Text        `json:"imageID"`
+	Location    interface{}        `json:"location"`
+	ReadID      pgtype.Text        `json:"readID"`
+	Make        pgtype.Text        `json:"make"`
+	VehicleType pgtype.Text        `json:"vehicleType"`
+	Color       pgtype.Text        `json:"color"`
+	InsertedAt  pgtype.Timestamptz `json:"insertedAt"`
 }
 
 type Hotlist struct {
-	ID                    int64
-	HotlistID             string
-	Status                string
-	StartDate             pgtype.Timestamptz
-	ExpirationDate        pgtype.Timestamptz
-	ReasonType            pgtype.Text
-	PlateNumber           string
-	NjsnapHitNotification pgtype.Bool
-	Doc                   []byte
-	CreatedAt             pgtype.Timestamptz
-	UpdatedAt             pgtype.Timestamptz
+	ID                    int64              `json:"id"`
+	HotlistID             string             `json:"hotlistID"`
+	Status                string             `json:"status"`
+	StartDate             pgtype.Timestamptz `json:"startDate"`
+	ExpirationDate        pgtype.Timestamptz `json:"expirationDate"`
+	ReasonType            pgtype.Text        `json:"reasonType"`
+	PlateNumber           string             `json:"plateNumber"`
+	NjsnapHitNotification pgtype.Bool        `json:"njsnapHitNotification"`
+	Doc                   []byte             `json:"doc"`
+	CreatedAt             pgtype.Timestamptz `json:"createdAt"`
+	UpdatedAt             pgtype.Timestamptz `json:"updatedAt"`
 }
 
 type HotlistAlertEvent struct {
-	ID        int64
-	Kind      string
-	CreatedAt pgtype.Timestamptz
-	Details   []byte
+	ID        int64              `json:"id"`
+	Kind      string             `json:"kind"`
+	CreatedAt pgtype.Timestamptz `json:"createdAt"`
+	Details   []byte             `json:"details"`
 }
 
 type HotlistAlertState struct {
-	ID                   int32
-	Mode                 interface{}
-	PhaseAttempts        int32
-	FirstFailedAt        pgtype.Timestamptz
-	VendorDownNotifiedAt pgtype.Timestamptz
-	NextDueAt            pgtype.Timestamptz
+	ID                   int32              `json:"id"`
+	Mode                 interface{}        `json:"mode"`
+	PhaseAttempts        int32              `json:"phaseAttempts"`
+	FirstFailedAt        pgtype.Timestamptz `json:"firstFailedAt"`
+	VendorDownNotifiedAt pgtype.Timestamptz `json:"vendorDownNotifiedAt"`
+	NextDueAt            pgtype.Timestamptz `json:"nextDueAt"`
 }

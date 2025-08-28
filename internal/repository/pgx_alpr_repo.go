@@ -37,5 +37,5 @@ func (a *PgxAlprRepo) AddHotlist(ctx context.Context, hotlist []byte) (int32, er
 	if err != nil {
 		return 0, fmt.Errorf("failed to add hotlist: %w", err)
 	}
-	return add_cnt.(int32), nil
+	return add_cnt, nil
 }

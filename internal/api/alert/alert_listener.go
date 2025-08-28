@@ -8,7 +8,9 @@ import (
 	"log"
 	"time"
 
+	"github.com/Eyemetric/alpr_service/internal/api/wasabi"
 	"github.com/Eyemetric/alpr_service/internal/db"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,6 +18,39 @@ type Job struct {
 	ID        int64
 	PlateID   int64
 	HotlistID int64
+}
+
+type PlateHits struct {
+	Plates []PlateHit `json:"plateHits,omitzero"`
+}
+
+type PlateHit struct {
+	ID               string    `json:"ID"`
+	EventID          string    `json:"eventID"`
+	EventDateTime    time.Time `json:"eventDateTime"`
+	PlateNumber      string    `json:"plateNumber"`
+	PlateSt          string    `json:"plateSt"`
+	PlateNumber2     string    `json:"plateNumber2"`
+	Confidence       string    `json:"confidence"`
+	VehicleMake      string    `json:"vehicleMake"`
+	VehicleModel     string    `json:"vehicleModel"`
+	VehicleColor     string    `json:"vehicleColor"`
+	VehicleSize      string    `json:"vehicleSize"`
+	VehicleType      string    `json:"vehicleType"`
+	CameraID         string    `json:"cameraID"`
+	CameraName       string    `json:"cameraName"`
+	CameraType       string    `json:"cameraType"`
+	Agency           string    `json:"agency"`
+	Ori              string    `json:"ori"`
+	Latitude         float64   `json:"latitude"`
+	Longitude        float64   `json:"longitude"`
+	Direction        string    `json:"direction"`
+	ImageVehicle     string    `json:"imageVehicle"`
+	ImagePlate       string    `json:"imagePlate"`
+	AdditionalImage1 string    `json:"additionalImage1"`
+	AdditionalImage2 string    `json:"additionalImage2"`
+	ImageID          string    `json:"-"`
+	SourceID         string    `json:"-"`
 }
 
 type Sender interface {
@@ -33,187 +68,106 @@ func (s SimSender) Send(ctx context.Context, j Job) error {
 	return nil
 }
 
-// reconnectWithBackoff attempts to re-establish a LISTEN connection with exponential backoff
-func reconnectWithBackoff(ctx context.Context, relisten func() error) bool {
-	backoff := 200 * time.Millisecond
-	maxBackoff := 10 * time.Second
-	attempts := 5
-
-	for i := 0; i < attempts && ctx.Err() == nil; i++ {
-		if i > 0 {
-			time.Sleep(backoff)
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		}
-
-		err := relisten()
-		if err == nil {
-			log.Printf("reconnected successfully")
-			return true
-		}
-		log.Printf("relisten attempt %d/%d failed: %v\n", i+1, attempts, err)
-
+func toString(t pgtype.Text) string {
+	if !t.Valid {
+		return ""
 	}
-	return false
+	s := t.String
+	return s
+}
+func toTime(ts pgtype.Timestamp) (time.Time, bool) {
+	if ts.InfinityModifier != pgtype.Finite {
+		return time.Time{}, false
+	}
+	if !ts.Valid {
+		return time.Time{}, false
+	} // or ts.Status != pgtype.Present
+	return ts.Time, true
 }
 
-// NOTE: Listen/Notify turned out to be pretty complex! using a much
-// simpler db poll until this strategy becomes necessary
-func StartAlertListenerX(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
-	const (
-		channel    = "alerts_new"
-		hbEvery    = 10 * time.Second // DB should NOTIFY at least this often (heartbeat or real work)
-		missAfter  = 3 * hbEvery      // tolerate a few missed beats
-		minSleep   = 50 * time.Millisecond
-		reqTimeout = 60 * time.Second
-	)
+func buildHitDoc(ctx context.Context, job Job, q *db.Queries, w *wasabi.Wasabi) error {
 
-	q := db.New(pool)
-	var ln *pgxpool.Conn
-	lastSeen := time.Now()
-
-	relisten := func() error {
-		if ln != nil {
-			ln.Release()
-			ln = nil
-		}
-		var err error
-		ln, err = pool.Acquire(ctx)
-		if err != nil {
-			return err
-		}
-		if _, err = ln.Exec(ctx, "LISTEN "+channel); err != nil {
-			ln.Release()
-			ln = nil
-			return err
-		}
-		lastSeen = time.Now()
-		return nil
+	params := db.GetPlateHitParams{
+		PlateID:   job.PlateID,
+		HotlistID: job.HotlistID,
 	}
 
-	if err := relisten(); err != nil {
+	hits, err := q.GetPlateHit(ctx, params)
+	if err != nil {
 		return err
 	}
 
-	// Worker goroutine
-	go func() {
-		defer func() {
-			if ln != nil {
-				ln.Release()
-			}
-		}()
-
-		// drain items from queue with specified batch size
-		drainQueue := func(batchSize int32) bool {
-			rows, err := q.ClaimDue(ctx, db.ClaimDueParams{Batch: batchSize, WorkerID: "worker-1"})
-			if err != nil {
-				log.Printf("claim error: %v", err)
-				return false
-			}
-			if len(rows) == 0 {
-				return false
-			}
-
-			// Process all claimed rows
-			for _, row := range rows {
-				hitJob := Job{ID: row.ID, PlateID: row.PlateID, HotlistID: row.HotlistID}
-				sendCtx, cancel := context.WithTimeout(ctx, reqTimeout)
-				err = s.Send(sendCtx, hitJob)
-				cancel()
-
-				if err == nil {
-					if err := q.ScheduleSuccess(ctx, hitJob.ID); err != nil {
-						log.Printf("success hook error: %v", err)
-					}
-				} else {
-					if err := q.ScheduleFailure(ctx, db.ScheduleFailureParams{ID: hitJob.ID, Err: err.Error()}); err != nil {
-						log.Printf("failure hook error: %v", err)
-					}
-				}
-			}
-
-			return true
+	var plateHits = make([]PlateHit, 0, len(hits))
+	for _, hit := range hits {
+		phit := PlateHit{
+			ID:               hit.ID,
+			EventID:          hit.Eventid,
+			PlateNumber:      hit.Platenumber,
+			PlateSt:          toString(hit.Platest),
+			PlateNumber2:     hit.Platenumber2,
+			Confidence:       hit.Confidence,
+			VehicleMake:      toString(hit.Vehiclemake),
+			VehicleModel:     hit.Vehiclemodel,
+			VehicleColor:     toString(hit.Vehiclecolor),
+			VehicleSize:      hit.Vehiclesize,
+			VehicleType:      toString(hit.Vehicletype),
+			CameraID:         hit.Cameraid,
+			CameraName:       toString(hit.Cameraname),
+			CameraType:       hit.Cameratype,
+			Agency:           hit.Agency,
+			Ori:              hit.Ori,
+			Latitude:         hit.Latitude.(float64),
+			Longitude:        hit.Longitude.(float64),
+			Direction:        hit.Direction,
+			ImageVehicle:     hit.Imagevehicle,
+			ImagePlate:       hit.Imageplate,
+			AdditionalImage1: hit.Additionalimage1,
+			AdditionalImage2: hit.Additionalimage2,
+			ImageID:          toString(hit.ImageID),
+			SourceID:         hit.SourceID.(string),
 		}
 
-		for ctx.Err() == nil {
-			// Drain all currently due items, one at a time
-			for drainQueue(1) && ctx.Err() == nil {
-			}
-
-			// Compute next wake (fallback now+500ms)
-			next, err := q.NextWake(ctx)
-			if err != nil {
-				next = time.Now().Add(500 * time.Millisecond)
-			}
-			nextT, ok := next.(time.Time)
-			if !ok {
-				nextT = time.Now().Add(500 * time.Millisecond)
-			}
-
-			wait := time.Until(nextT)
-			if wait < minSleep {
-				wait = minSleep
-			}
-			if wait > hbEvery {
-				// Bound wait so we can check heartbeat regularly
-				wait = hbEvery
-			}
-
-			// Wait for NOTIFY (bounded)
-			waitCtx, cancel := context.WithTimeout(ctx, wait)
-			n, werr := ln.Conn().WaitForNotification(waitCtx)
-			cancel()
-
-			switch {
-			case werr == nil:
-				// Got a NOTIFY: log + parse payload (optional)
-				lastSeen = time.Now()
-				log.Printf("notify: channel=%s pid=%d payload=%s", n.Channel, n.PID, n.Payload)
-				// Example payloads: {"bulk":"drain"} or {"type":"hb"}
-				var msg struct {
-					Type string `json:"type"`
-					Bulk string `json:"bulk"`
-				}
-				if err := json.Unmarshal([]byte(n.Payload), &msg); err == nil {
-					if msg.Bulk == "drain" {
-						// immediately try to drain more work
-						continue
-					}
-					// treat any message as activity (heartbeat or real work)
-				}
-
-			case errors.Is(werr, context.DeadlineExceeded):
-				// No NOTIFY in this window; check heartbeat SLA
-				if time.Since(lastSeen) > missAfter {
-					log.Printf("missed heartbeat for %v; reconnecting", time.Since(lastSeen))
-					if err := relisten(); err != nil {
-						log.Printf("relisten failed: %v", err)
-						return
-					}
-				}
-
-			case errors.Is(werr, context.Canceled):
-				// parent ctx canceled; exit
-				return
-
-			default:
-				// Hard error (conn dropped, etc.) -> reconnect with backoff
-				log.Printf("listener error: %v; reconnecting", werr)
-				if !reconnectWithBackoff(ctx, relisten) {
-					log.Printf("failed to reconnect after 5 attempts; exiting")
-					return
-				}
-			}
+		//date time, always fun.
+		if t, ok := toTime(hit.Eventdatetime); ok {
+			phit.EventDateTime = t
 		}
-	}()
+
+		//build wasabi image links.
+		phit = createImageLinks(phit, w)
+		plateHits = append(plateHits, phit)
+
+	}
+
+	ph := PlateHits{Plates: plateHits}
+	bytes, err := json.Marshal(ph)
+	if err != nil {
+		fmt.Printf("err : %v\n", err)
+	}
+	fmt.Println(string(bytes))
 
 	return nil
 }
 
+func createImageLinks(plateHit PlateHit, w *wasabi.Wasabi) PlateHit {
+
+	vehicle_img := fmt.Sprintf("alpr/%s/%s", plateHit.SourceID, plateHit.ImageID)
+	vehicle_url, err := w.PresignUrl("njsnap", vehicle_img)
+	if err == nil {
+		plateHit.ImageVehicle = vehicle_url
+	}
+
+	plate_img := fmt.Sprintf("alpr-plate/%s/%s", plateHit.SourceID, plateHit.ImageID)
+	plate_url, err := w.PresignUrl("njsnap", plate_img)
+	if err == nil {
+		plateHit.ImagePlate = plate_url
+	}
+
+	return plateHit
+}
+
 // A simple database poll to check for plate hits every 5 seconds.
-func StartListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
+// func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
+func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.Wasabi, s Sender) error {
 	const (
 		pollInterval = 5 * time.Second
 		sendTimeout  = 60 * time.Second
@@ -236,6 +190,7 @@ func StartListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
 
 			for _, row := range rows {
 				hitJob := Job{ID: row.ID, PlateID: row.PlateID, HotlistID: row.HotlistID}
+				_ = buildHitDoc(ctx, hitJob, q, wasabi)
 				sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 				err = s.Send(sendCtx, hitJob)
 				cancel()
@@ -255,7 +210,7 @@ func StartListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
 			return true
 		}
 
-		//the polling
+		//start polling.
 		ticker := time.NewTicker(pollInterval)
 		defer ticker.Stop()
 
@@ -272,7 +227,7 @@ func StartListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
 				}
 			}
 		}
-	}()
+	}() //start go routing
 
 	return nil
 }
