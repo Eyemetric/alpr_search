@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/Eyemetric/alpr_service/internal/api/alert"
 	"github.com/Eyemetric/alpr_service/internal/api/hotlist"
@@ -35,10 +36,18 @@ type ErrorRes struct {
 
 func initApp() *App {
 
+	//config
 	connStr := getEnv("ALPR_DB", "postgresql://admin:admin@192.168.3.225:5533/snap")
+	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
+	s3_region := getEnv("S3_REGION", "us-east-1")
+	plateHitUrl := getEnv("PLATEHIT_URL", "https://demo.njroic.net/api/poi/alpr")
+	njsnapToken := getEnv("NJSNAP_TOKEN", "")
 
 	log.Println("------------- starting application ------------")
-	log.Printf("conn str: %s", connStr)
+	log.Printf("conn str: %s\n", connStr)
+	log.Printf("state url: %s\n", plateHitUrl)
+	log.Printf("state token: %s\n", njsnapToken)
+
 	ctx := context.Background()
 	dbPool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
@@ -50,10 +59,6 @@ func initApp() *App {
 		log.Fatalf("unable to ping database: %v", err)
 	}
 
-	//where plate and vehicle images live.
-	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
-	s3_region := getEnv("S3_REGION", "us-east-1")
-
 	wasabi, err := wasabi.NewWasabi(s3_host, s3_region)
 	if err != nil {
 		log.Fatalf("unable to create wasabi client: %v", err)
@@ -62,6 +67,13 @@ func initApp() *App {
 	e := echo.New()
 
 	repo := repository.NewPgxAlprRepo(dbPool)
+
+	alertConfig := alert.AlertConfig{
+		PlateHitUrl: plateHitUrl,
+		AuthToken:   njsnapToken,
+		SendTimeout: 15 * time.Second,
+	}
+	//plateSender := alert.NewPlateSender(alertConfig)
 
 	app := &App{
 		DB:      dbPool,
@@ -72,14 +84,14 @@ func initApp() *App {
 	}
 
 	registerRoutes(app)
-	startAlertListener(app)
+	startAlertListener(app, alertConfig)
 	return app
 
 }
 
-func startAlertListener(app *App) {
-	s := alert.SimSender{FailureOnOddPlate: false}
-	err := alert.StartAlertListener(app.Context, app.DB, app.Wasabi, s)
+func startAlertListener(app *App, conf alert.AlertConfig) {
+
+	err := alert.StartAlertListener(app.Context, app.DB, app.Wasabi, conf)
 	if err != nil {
 		log.Fatalf("could not start alert listener: %v", err)
 	}
