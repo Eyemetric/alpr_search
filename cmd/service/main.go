@@ -41,7 +41,7 @@ func initApp() *App {
 	s3_host := getEnv("S3_HOST", "s3.wasabisys.com")
 	s3_region := getEnv("S3_REGION", "us-east-1")
 	plateHitUrl := getEnv("PLATEHIT_URL", "https://demo.njroic.net/api/poi/alpr")
-	njsnapToken := getEnv("NJSNAP_TOKEN", "")
+	njsnapToken := getEnv("NJSNAP_TOKEN", "1234")
 
 	log.Println("------------- starting application ------------")
 	log.Printf("conn str: %s\n", connStr)
@@ -71,7 +71,7 @@ func initApp() *App {
 	alertConfig := alert.AlertConfig{
 		PlateHitUrl: plateHitUrl,
 		AuthToken:   njsnapToken,
-		SendTimeout: 15 * time.Second,
+		SendTimeout: 60 * time.Second,
 	}
 	//plateSender := alert.NewPlateSender(alertConfig)
 

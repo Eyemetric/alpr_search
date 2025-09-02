@@ -534,7 +534,8 @@ begin
   update alerts
   set attempts = attempts + 1,
       last_error = p_err,
-      status = case when s.mode = 'normal' then 'pending' else 'queued' end,
+      status = case when s.mode = 'normal' then 'pending'::alert_status else 'queued'::alert_status end,
+
       visible_at = s.next_due_at,
       locked_by = null,
       locked_at = null,

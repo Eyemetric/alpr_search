@@ -26,7 +26,7 @@ select alpr_util.next_wake();
 -- name: ScheduleSuccess :exec
 select alpr_util.hotlist_alert_schedule_success(sqlc.arg(id));
 -- name: ScheduleFailure :exec
-select alpr_util.hostlist_alert_schedure_failure(sqlc.arg(id), sqlc.arg(err));
+select alpr_util.hotlist_alert_schedule_failure(sqlc.arg(id), sqlc.arg(err));
 
 -- name: ReclaimStuck :one
 select alpr_util.alerts_reclaim_stuck();

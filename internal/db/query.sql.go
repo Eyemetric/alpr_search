@@ -218,12 +218,12 @@ func (q *Queries) ReclaimStuck(ctx context.Context) (int32, error) {
 }
 
 const scheduleFailure = `-- name: ScheduleFailure :exec
-select alpr_util.hostlist_alert_schedure_failure($1, $2)
+select alpr_util.hotlist_alert_schedule_failure($1, $2)
 `
 
 type ScheduleFailureParams struct {
-	ID  interface{} `json:"id"`
-	Err interface{} `json:"err"`
+	ID  int64  `json:"id"`
+	Err string `json:"err"`
 }
 
 func (q *Queries) ScheduleFailure(ctx context.Context, arg ScheduleFailureParams) error {

@@ -176,14 +176,14 @@ func createImageLinks(plateHit PlateHit, w *wasabi.Wasabi) PlateHit {
 }
 
 // A simple database poll to check for plate hits every 5 seconds.
-// func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, s Sender) error {
 func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.Wasabi, conf AlertConfig) error {
+
 	const (
 		pollInterval = 5 * time.Second
-		sendTimeout  = 60 * time.Second
 		batchSize    = 1
 	)
 
+	sendTimeout := conf.SendTimeout
 	q := db.New(pool)
 
 	sender := NewPlateSender(conf)
@@ -208,18 +208,25 @@ func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.
 				}
 				sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 				//err = sender.Send(ctx context.Context, hits PlateHits)
-				sendRes := sender.Send(sendCtx, plateHits)
+				statusCode, err := sender.Send(sendCtx, plateHits)
+				//sendRes := sender.Send(sendCtx, plateHits)
+				fmt.Println("-------  Plate Hit Result----- ")
+				fmt.Printf("code: %d.  Err: %s", statusCode, err)
 
 				cancel()
 
-				if sendRes.Error == nil {
-					if err := q.ScheduleSuccess(ctx, hitJob.ID); err != nil {
-						log.Printf("success hook error: %v", err)
+				if err != nil {
+					fmt.Println("-------  FAIL ----- ")
+					if err := q.ScheduleFailure(ctx, db.ScheduleFailureParams{ID: hitJob.ID, Err: err.Error()}); err != nil {
+						log.Printf("failure hook error: %v\n", err)
 					}
+
 				} else {
-					if err := q.ScheduleFailure(ctx, db.ScheduleFailureParams{ID: hitJob.ID, Err: sendRes.Error.Error()}); err != nil {
-						log.Printf("failure hook error: %v", err)
+					fmt.Println("-------  SUCCESS ----- ")
+					if err := q.ScheduleSuccess(ctx, hitJob.ID); err != nil {
+						log.Printf("success hook error: %v\n", err)
 					}
+
 				}
 
 			}
