@@ -53,6 +53,38 @@ COMMENT ON COLUMN public.alpr.image_id IS 'used to build url to direct image acc
 COMMENT ON COLUMN public.alpr.read_id  IS 'unique id of the read scan';
 COMMENT ON COLUMN public.alpr.vehicle_type IS 'sedan, suv, etc';
 
+
+create function alert_on_hotlist_match() returns trigger
+    language plpgsql
+as
+$$
+begin
+
+-- we want to check if the plate number exists in
+-- the hotlist and if so, queue it up in the alerts table
+    insert into public.alerts(plate_id, hotlist_id)
+    select NEW.id, h.id
+    from public.hotlists h
+    where upper(h.plate_number) = upper(NEW.plate_num)
+    -- make sure we're comparing datetime in the correct format
+    and (h.expiration_date is null or h.expiration_date > (NEW.read_time at time zone 'UTC'))
+    --and h.njsnap_hit_notification = true
+    on conflict do nothing ;
+
+    raise notice 'checked hotlist for plate: %', NEW.plate_num ;
+    return new;
+
+end$$;
+
+
+create trigger trg_check_hotlist
+    after insert
+    on alpr
+    for each row
+execute procedure alpr_util.alert_on_hotlist_match();
+
+
+
 ------ ALPR INGEST STRATEGY ----------
 -- We take in the entire json doc and validate in the database.
 -- =========================================================
