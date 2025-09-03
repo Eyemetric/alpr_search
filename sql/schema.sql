@@ -54,7 +54,7 @@ COMMENT ON COLUMN public.alpr.read_id  IS 'unique id of the read scan';
 COMMENT ON COLUMN public.alpr.vehicle_type IS 'sedan, suv, etc';
 
 
-create function alert_on_hotlist_match() returns trigger
+create function alpr_util.alert_on_hotlist_match() returns trigger
     language plpgsql
 as
 $$
