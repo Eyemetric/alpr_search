@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM scratch
 WORKDIR /app
-COPY alpr_search .
-ENTRYPOINT ["./alpr_search"]
+COPY alpr_service .
+ENTRYPOINT ["/app/alpr_service"]
