@@ -138,7 +138,6 @@ begin
 end;
 $$;
 
-alter function parse_unixtime(jsonb) owner to admin;
 
 -- Geometry builder: supports {lon,lat}, [lon,lat], or "lon,lat"
 CREATE OR REPLACE FUNCTION alpr_util.location_from_json(val jsonb)

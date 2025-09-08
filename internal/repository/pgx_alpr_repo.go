@@ -39,3 +39,43 @@ func (a *PgxAlprRepo) AddHotlist(ctx context.Context, hotlist []byte) (int32, er
 	}
 	return add_cnt, nil
 }
+
+// TODO: not in use yet. it's kind of useless wrapper just to implement the repo interface
+func (a *PgxAlprRepo) ScheduleSuccess(ctx context.Context, id int64) error {
+
+	err := a.queries.ScheduleSuccess(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (a *PgxAlprRepo) ScheduleFailure(ctx context.Context, failureParams db.ScheduleFailureParams) error {
+
+	err := a.queries.ScheduleFailure(ctx, failureParams)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (a *PgxAlprRepo) ClaimDue(ctx context.Context, claimDueParams db.ClaimDueParams) ([]db.ClaimDueRow, error) {
+	claimsDue, err := a.queries.ClaimDue(ctx, claimDueParams)
+	if err != nil {
+		return nil, err
+	}
+	return claimsDue, nil
+}
+
+func (a *PgxAlprRepo) GetPlateHit(ctx context.Context, plateHitParams db.GetPlateHitParams) ([]db.GetPlateHitRow, error) {
+	hits, err := a.queries.GetPlateHit(ctx, plateHitParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return hits, nil
+}

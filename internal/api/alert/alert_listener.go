@@ -10,8 +10,8 @@ import (
 
 	"github.com/Eyemetric/alpr_service/internal/api/wasabi"
 	"github.com/Eyemetric/alpr_service/internal/db"
+	"github.com/Eyemetric/alpr_service/internal/repository"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Job struct {
@@ -93,14 +93,14 @@ func toTime(ts pgtype.Timestamp) (time.Time, bool) {
 	return ts.Time, true
 }
 
-func buildHitDoc(ctx context.Context, job Job, q *db.Queries, w *wasabi.Wasabi) (PlateHits, error) {
+func buildHitDoc(ctx context.Context, job Job, repo repository.ALPRRepository, w *wasabi.Wasabi) (PlateHits, error) {
 
 	params := db.GetPlateHitParams{
 		PlateID:   job.PlateID,
 		HotlistID: job.HotlistID,
 	}
 
-	hits, err := q.GetPlateHit(ctx, params)
+	hits, err := repo.GetPlateHit(ctx, params)
 	if err != nil {
 		return PlateHits{}, err
 	}
@@ -176,7 +176,8 @@ func createImageLinks(plateHit PlateHit, w *wasabi.Wasabi) PlateHit {
 }
 
 // A simple database poll to check for plate hits every 5 seconds.
-func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.Wasabi, conf AlertConfig) error {
+// func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.Wasabi, conf AlertConfig) error {
+func StartAlertListener(ctx context.Context, repo repository.ALPRRepository, wasabi *wasabi.Wasabi, conf AlertConfig) error {
 
 	const (
 		pollInterval = 5 * time.Second
@@ -184,13 +185,13 @@ func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.
 	)
 
 	sendTimeout := conf.SendTimeout
-	q := db.New(pool)
+	//q := db.New(pool)
 
 	sender := NewPlateSender(conf)
 
 	go func() {
 		drainQueue := func() bool {
-			rows, err := q.ClaimDue(ctx, db.ClaimDueParams{Batch: batchSize, WorkerID: "worker-1"})
+			rows, err := repo.ClaimDue(ctx, db.ClaimDueParams{Batch: batchSize, WorkerID: "worker-1"})
 			if err != nil {
 				log.Printf("claim error: %v", err)
 				return false
@@ -202,7 +203,7 @@ func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.
 
 			for _, row := range rows {
 				hitJob := Job{ID: row.ID, PlateID: row.PlateID, HotlistID: row.HotlistID}
-				plateHits, err := buildHitDoc(ctx, hitJob, q, wasabi)
+				plateHits, err := buildHitDoc(ctx, hitJob, repo, wasabi)
 				if err != nil {
 					continue
 				}
@@ -217,13 +218,13 @@ func StartAlertListener(ctx context.Context, pool *pgxpool.Pool, wasabi *wasabi.
 
 				if err != nil {
 					fmt.Println("-------  FAIL ----- ")
-					if err := q.ScheduleFailure(ctx, db.ScheduleFailureParams{ID: hitJob.ID, Err: err.Error()}); err != nil {
+					if err := repo.ScheduleFailure(ctx, db.ScheduleFailureParams{ID: hitJob.ID, Err: err.Error()}); err != nil {
 						log.Printf("failure hook error: %v\n", err)
 					}
 
 				} else {
 					fmt.Println("-------  SUCCESS ----- ")
-					if err := q.ScheduleSuccess(ctx, hitJob.ID); err != nil {
+					if err := repo.ScheduleSuccess(ctx, hitJob.ID); err != nil {
 						log.Printf("success hook error: %v\n", err)
 					}
 

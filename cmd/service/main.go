@@ -73,7 +73,6 @@ func initApp() *App {
 		AuthToken:   njsnapToken,
 		SendTimeout: 60 * time.Second,
 	}
-	//plateSender := alert.NewPlateSender(alertConfig)
 
 	app := &App{
 		DB:      dbPool,
@@ -91,7 +90,7 @@ func initApp() *App {
 
 func startAlertListener(app *App, conf alert.AlertConfig) {
 
-	err := alert.StartAlertListener(app.Context, app.DB, app.Wasabi, conf)
+	err := alert.StartAlertListener(app.Context, app.Repo, app.Wasabi, conf)
 	if err != nil {
 		log.Fatalf("could not start alert listener: %v", err)
 	}
