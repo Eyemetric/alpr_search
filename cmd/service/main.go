@@ -21,10 +21,11 @@ import (
 )
 
 type App struct {
-	DB      *pgxpool.Pool //TODO: this will be removed when everything is moved to the repo
-	Echo    *echo.Echo
-	Wasabi  *wasabi.Wasabi
-	Repo    *repository.PgxAlprRepo
+	DB     *pgxpool.Pool //TODO: this will be removed when everything is moved to the repo
+	Echo   *echo.Echo
+	Wasabi *wasabi.Wasabi
+	//Repo    *repository.PgxAlprRepo
+	Repo    repository.ALPRRepository
 	Context context.Context
 }
 
