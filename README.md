@@ -128,7 +128,7 @@ Search results are paginated and offer a maximum of 1000 results per page.
 
 ## Phase 2:  Person of Interest (POI)
 
-This feature allows police officers to add and remove vehicles from the POI hotlist. When a vehicle is entered into the system, it is checked against the POI hotlist. If the vehicle is found on the hotlist, an alert is sent to the NJSNAP system.
+This feature allows NJSnap add and remove vehicles from the POI hotlist. When a vehicle is entered into the system, it is checked against the POI hotlist. If the vehicle is found on the hotlist, an alert is sent to the NJSNAP system.
 
  There are 3 types of hotlists:
  1. NJSnap: The most urgent and recent BOLOs sent from the state to our endpoint

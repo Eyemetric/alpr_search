@@ -388,7 +388,7 @@ for each row execute function alpr_util.set_updated_at();
 create table if not exists alerts (
   id                   bigserial primary key,
   plate_id             bigint not null,
-  hotlist_id           bigint not null references hotlists(id) on delete restrict,
+  hotlist_id           bigint not null references hotlists(id) on delete cascade,
   created_at           timestamptz not null default now(),
   status               alpr_util.alert_status not null default 'pending',
   attempts             int not null default 0,
@@ -641,6 +641,14 @@ declare
 begin
   if p_doc ? 'POIs' then
     for poi in select * from jsonb_array_elements(p_doc->'POIs') loop
+    -- a hitlist has a status of ADD|EDIT|DELETE
+    if upper(poi->>'Status') = 'DELETE' then
+         delete from hotlists where hotlist_id = poi->>'ID';
+         if Found then
+             n := n + 1; --increment affected count
+         end if;
+    else
+
       insert into hotlists(
         hotlist_id, status, start_date, expiration_date,
         reason_type, plate_number, njsnap_hit_notification, doc
@@ -665,6 +673,7 @@ begin
         doc = excluded.doc,
         updated_at = now();
       n := n + 1;
+    end if;
     end loop;
   end if;
   return n;
