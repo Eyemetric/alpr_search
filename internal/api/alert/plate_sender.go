@@ -39,12 +39,7 @@ func (p PlateHitSender) Send(ctx context.Context, hits PlateHits) (int, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	//req.Header.Set("Authorization", "Bearer "+p.token)
-	req.Header.Set("Authorization", p.token)
-	//req.Header.Set("AuthToken", "Bearer "+p.token)
 	req.Header.Set("AuthToken", p.token)
-
-	fmt.Println("AuthToken:", p.token)
 
 	resp, err := p.client.Do(req)
 

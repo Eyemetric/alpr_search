@@ -196,6 +196,8 @@ func StartAlertListener(ctx context.Context, repo repository.ALPRRepository, was
 				log.Printf("claim error: %v", err)
 				return false
 			}
+
+			log.Printf("polling queue: %d results\n", len(rows))
 			//nothing to claim
 			if len(rows) == 0 {
 				return false
