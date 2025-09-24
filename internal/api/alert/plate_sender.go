@@ -3,6 +3,7 @@ package alert
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,9 +21,12 @@ type PlateHitSender struct {
 func NewPlateSender(conf AlertConfig) *PlateHitSender {
 
 	return &PlateHitSender{
-		client: &http.Client{Timeout: conf.SendTimeout},
-		base:   conf.PlateHitUrl,
-		token:  conf.AuthToken,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+			Timeout: conf.SendTimeout},
+		base:  conf.PlateHitUrl,
+		token: conf.AuthToken,
 	}
 }
 
